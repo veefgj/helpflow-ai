@@ -6,6 +6,7 @@ import { prisma, insertMessageSerialized, type Message } from "@helpflow/databas
 import { DEFAULTS } from "@helpflow/config";
 import { buildChatMessages, getLlmProvider, parseTrailer, validateCitations, type ChatMessage, type HistoryMessage } from "@helpflow/ai";
 import { AiGenLockService } from "./ai-gen-lock.service";
+import { AiGenerationRegistry } from "./ai-generation-registry.service";
 import { RetrievalService } from "./retrieval.service";
 
 const INSUFFICIENT_KNOWLEDGE_FALLBACK =
@@ -33,6 +34,7 @@ export class AiReplyService {
   constructor(
     @Inject(AiGenLockService) private readonly lock: AiGenLockService,
     @Inject(RetrievalService) private readonly retrieval: RetrievalService,
+    @Inject(AiGenerationRegistry) private readonly registry: AiGenerationRegistry,
   ) {}
 
   async generateReply(params: {
@@ -48,8 +50,14 @@ export class AiReplyService {
     try {
       await this.run(params);
     } finally {
+      this.registry.unregister(params.conversationId);
       await this.lock.release(params.conversationId);
     }
+  }
+
+  /** Section 7 T2: a customer requesting handoff mid-generation aborts the in-flight stream. */
+  abort(conversationId: string): boolean {
+    return this.registry.abort(conversationId);
   }
 
   private async run(params: {
@@ -96,9 +104,9 @@ export class AiReplyService {
 
     let result: StreamOutcome;
     try {
-      result = await this.streamWithTimeouts(provider, messages, emitChunk);
+      result = await this.streamWithTimeouts(params.conversationId, provider, messages, emitChunk);
       if (result.firstTokenTimedOut) {
-        result = await this.streamWithTimeouts(provider, messages, emitChunk); // retry once, first-token only
+        result = await this.streamWithTimeouts(params.conversationId, provider, messages, emitChunk); // retry once, first-token only
       }
     } catch (err) {
       this.logger.error(`AI generation failed for conversation ${params.conversationId}`, err as Error);
@@ -156,11 +164,13 @@ export class AiReplyService {
   }
 
   private async streamWithTimeouts(
+    conversationId: string,
     provider: ReturnType<typeof getLlmProvider>,
     messages: ChatMessage[],
     onChunk: (delta: string) => void,
   ): Promise<StreamOutcome> {
     const controller = new AbortController();
+    this.registry.register(conversationId, controller);
     let firstTokenReceived = false;
     let firstTokenTimedOut = false;
 

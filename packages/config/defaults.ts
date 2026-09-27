@@ -92,8 +92,11 @@ export const DEFAULTS = {
       conversationTimers: "conversation-timers",
       maintenance: "maintenance",
     },
-    handoffTimeoutJobId: (conversationId: string) => `handoff-timeout:${conversationId}`,
-    agentGraceJobId: (conversationId: string) => `agent-grace:${conversationId}`,
+    // Double underscore, not a colon: BullMQ rejects custom job ids containing ":" (it uses colons
+    // as its own Redis key delimiter). Spec Appendix E writes these as "handoff-timeout:{id}" —
+    // this is the one place prose and the runtime disagree; this file is the corrected contract.
+    handoffTimeoutJobId: (conversationId: string) => `handoff-timeout__${conversationId}`,
+    agentGraceJobId: (conversationId: string) => `agent-grace__${conversationId}`,
     maintenanceEveryMin: 5, // release stale reservations, close inactive AI conversations, purge deletions
   },
 

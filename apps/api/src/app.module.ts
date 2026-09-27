@@ -5,6 +5,7 @@ import { loadEnv } from "@helpflow/config";
 import { HealthModule } from "./health/health.module";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
 import { RedisModule } from "./common/redis/redis.module";
+import { RealtimeModule } from "./common/realtime/realtime.module";
 import { AuthGuard } from "./common/guards/auth.guard";
 import { AuthModule } from "./auth/auth.module";
 import { OrganizationsModule } from "./organizations/organizations.module";
@@ -14,6 +15,8 @@ import { ChatbotsModule } from "./chatbots/chatbots.module";
 import { KnowledgeBasesModule } from "./knowledge-bases/knowledge-bases.module";
 import { DocumentsModule } from "./documents/documents.module";
 import { WidgetModule } from "./widget/widget.module";
+import { ConversationsModule } from "./conversations/conversations.module";
+import { AgentModule } from "./agent/agent.module";
 
 const env = loadEnv();
 
@@ -33,6 +36,7 @@ const env = loadEnv();
       },
     }),
     RedisModule,
+    RealtimeModule,
     QueuesModule,
     HealthModule,
     AuthModule,
@@ -42,6 +46,8 @@ const env = loadEnv();
     KnowledgeBasesModule,
     DocumentsModule,
     WidgetModule,
+    ConversationsModule,
+    AgentModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })

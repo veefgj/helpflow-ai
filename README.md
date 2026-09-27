@@ -9,18 +9,19 @@ disagree, the contract file wins (see `docs/PROJECT_SPEC.md` §12).
 
 ## Status
 
-Phases 0–2 are in place: shared schema/contracts, a working auth + workspace + RBAC backend, and a
-full RAG pipeline (ingestion → embeddings → pgvector retrieval → cited streamed answers) — all
-verified end-to-end against real Postgres/Redis/S3-compatible storage, not just typechecked. Remaining
-product features (full handoff state machine, billing) are built out phase by phase per the build
-plan in `docs/PROJECT_SPEC.md` §13.
+Phases 0–3 are in place: shared schema/contracts, a working auth + workspace + RBAC backend, a full
+RAG pipeline (ingestion → embeddings → pgvector retrieval → cited streamed answers), and the full
+T1–T9 realtime handoff state machine with an agent inbox — all verified end-to-end against real
+Postgres/Redis/S3-compatible storage, not just typechecked. Remaining product features (billing,
+quota enforcement, deploy) are built out phase by phase per the build plan in
+`docs/PROJECT_SPEC.md` §13.
 
 | Phase | Scope | Status |
 |---|---|---|
 | 0. Contracts | schema, raw SQL, socket/error/defaults contracts, ADRs, monorepo, Docker Compose, CI | ✅ |
 | 1. Core SaaS | Auth + refresh rotation, workspaces, membership, invitations, RBAC, tenant isolation | ✅ |
 | 2. Knowledge + AI | Ingestion, embeddings, pgvector RAG, citations, widget, eval set | ✅ |
-| 3. Realtime support | Full T1–T9 handoff state machine, timers, agent inbox | ⏳ |
+| 3. Realtime support | Full T1–T9 handoff state machine, timers, agent inbox | ✅ |
 | 4. Commercial + delivery | Quota reservation, plans, Stripe, E2E, deploy | ⏳ |
 
 **Phase 1 highlights:** email/password auth (argon2id), rotating refresh cookie with reuse-detection
@@ -43,6 +44,20 @@ runner (Hit@5, citation correctness, LLM-judged faithfulness, correct-refusal ra
 seeded knowledge base, reusing the exact retrieval/prompt/citation logic the API runs in production.
 A swappable `AI_PROVIDER=fake` stub (deterministic, no network) lets the whole pipeline run and be
 tested without an OpenAI key — set `AI_PROVIDER=openai` for real answers and a real eval report.
+
+**Phase 3 highlights:** the full T1–T9 conversation state machine (Section 7), every transition a
+conditional `UPDATE ... WHERE status = <from>` — two agents racing to accept the same waiting
+conversation is a real, automated-tested scenario: exactly one gets `200`, the other `409
+CONVERSATION_ALREADY_ASSIGNED` with the current state. A customer can request a handoff mid-AI-reply
+(T2, aborting the in-flight stream); an unaccepted handoff times out into either `RESUME_AI` (T4) or
+`COLLECT_EMAIL` (T5) per chatbot policy; an assigned agent's last socket disconnecting schedules a
+30s grace timer (T6) that a reconnect within the window cancels; Owner/Admin can take over or
+reassign any `AGENT_ACTIVE` conversation (T7, audit-logged); and idle `AI_ACTIVE` conversations
+close automatically after 24h (T9). The `/agent` Socket.IO namespace gives staff a live inbox
+(`inbox:updated`) and realtime replies, RBAC-checked so an agent can only reply to conversations
+assigned to them. Since the timers fire in `apps/worker` — a separate process with no Socket.IO
+server of its own — `@socket.io/redis-adapter` (API) and `@socket.io/redis-emitter` (worker) share
+Redis-backed rooms so a worker-triggered transition still reaches connected clients live.
 
 ## Architecture
 

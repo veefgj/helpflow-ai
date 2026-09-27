@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { prisma, listMessagesAfterSeq } from "@helpflow/database";
 import { DEFAULTS } from "@helpflow/config";
 import { ApiErrorCode, HelpFlowApiException } from "@helpflow/types";
@@ -7,7 +7,9 @@ import { RateLimit } from "../common/rate-limit/rate-limit.decorator";
 import { RateLimitGuard } from "../common/rate-limit/rate-limit.guard";
 import { toMessageDto } from "../common/mappers/message.mapper";
 import { WidgetSessionService } from "./widget-session.service";
+import { WidgetConversationsService } from "./widget-conversations.service";
 import { BootstrapSessionDto } from "./dto/bootstrap-session.dto";
+import { ContactDto } from "./dto/contact.dto";
 import { VisitorAuthGuard } from "./visitor-auth.guard";
 import { CurrentVisitor } from "./current-visitor.decorator";
 import type { VisitorTokenPayload } from "./visitor-token";
@@ -15,7 +17,10 @@ import type { VisitorTokenPayload } from "./visitor-token";
 @Public()
 @Controller("api/widget")
 export class WidgetController {
-  constructor(@Inject(WidgetSessionService) private readonly session: WidgetSessionService) {}
+  constructor(
+    @Inject(WidgetSessionService) private readonly session: WidgetSessionService,
+    @Inject(WidgetConversationsService) private readonly conversations: WidgetConversationsService,
+  ) {}
 
   // Public and unauthenticated by necessity: the widget iframe (apps/widget) reads this to set its
   // own Content-Security-Policy: frame-ancestors header (Section 6 "Embedding policy") before any
@@ -52,5 +57,19 @@ export class WidgetController {
       Math.min(Number(limit ?? DEFAULTS.socket.syncPageSize), DEFAULTS.socket.syncPageSize),
     );
     return { items: rows.map(toMessageDto) };
+  }
+
+  @UseGuards(VisitorAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @Post("conversations/:conversationId/handoff")
+  async handoff(@CurrentVisitor() visitor: VisitorTokenPayload, @Param("conversationId") conversationId: string) {
+    return this.conversations.requestHandoff(visitor, conversationId);
+  }
+
+  @UseGuards(VisitorAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Post("conversations/:conversationId/contact")
+  async contact(@CurrentVisitor() visitor: VisitorTokenPayload, @Param("conversationId") conversationId: string, @Body() dto: ContactDto) {
+    await this.conversations.saveContact(visitor, conversationId, dto.email, dto.name);
   }
 }
