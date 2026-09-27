@@ -4,13 +4,21 @@
 // Phase 4 adds a third sweep here (releasing stale token reservations).
 import { Queue, Worker } from "bullmq";
 import { DEFAULTS } from "@helpflow/config";
-import { prisma, conditionalTransition, insertMessageSerialized } from "@helpflow/database";
+import { prisma, conditionalTransition, insertMessageSerialized, releaseStaleReservations } from "@helpflow/database";
 import { deleteObject } from "@helpflow/storage";
 import { createRedisConnection } from "../redis";
 import { emitConversationUpdated, emitInboxUpdated, emitMessageCreated } from "../realtime";
 import { toConversationDto, toMessageDto } from "../mappers";
 
-async function purgeSoftDeletedDocuments(): Promise<void> {
+/** Section 8: a reservation whose caller crashed before reconcile/release stays RESERVED forever
+ * otherwise, permanently shrinking the org's available quota. */
+export async function sweepStaleTokenReservations(): Promise<void> {
+  const cutoff = new Date(Date.now() - DEFAULTS.quota.reservationStaleMin * 60_000);
+  const released = await releaseStaleReservations(cutoff);
+  if (released > 0) console.log(`maintenance: released ${released} stale token reservation(s)`);
+}
+
+export async function purgeSoftDeletedDocuments(): Promise<void> {
   const pending = await prisma.document.findMany({ where: { deletedAt: { not: null } } });
   for (const doc of pending) {
     try {
@@ -24,7 +32,7 @@ async function purgeSoftDeletedDocuments(): Promise<void> {
 }
 
 /** T9: an AI_ACTIVE conversation with no activity for aiInactivityCloseHours is closed. */
-async function closeInactiveAiConversations(): Promise<void> {
+export async function closeInactiveAiConversations(): Promise<void> {
   const cutoff = new Date(Date.now() - DEFAULTS.conversation.aiInactivityCloseHours * 60 * 60 * 1000);
   const stale = await prisma.conversation.findMany({ where: { status: "AI_ACTIVE", lastMessageAt: { lt: cutoff } } });
 
@@ -65,6 +73,7 @@ export function startMaintenanceWorker(): Worker {
     async () => {
       await purgeSoftDeletedDocuments();
       await closeInactiveAiConversations();
+      await sweepStaleTokenReservations();
     },
     { connection },
   );

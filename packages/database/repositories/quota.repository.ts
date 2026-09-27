@@ -89,13 +89,15 @@ export async function reconcileReservation(reservationId: string, actualTokens: 
     });
     if (reservation.count === 0) return; // already settled — never double-apply
 
+    // updateMany, not update: the org (and its counters) may already be gone by the time a stale
+    // reservation is swept — settling the reservation itself must still succeed either way.
     const row = await tx.tokenReservation.findUniqueOrThrow({ where: { id: reservationId } });
-    await tx.usageCounter.update({
+    await tx.usageCounter.updateMany({
       where: { id: row.usageCounterId },
       data: { aiTokensReserved: { decrement: row.estimatedTokens }, aiTokensUsed: { increment: actualTokens } },
     });
-    await tx.chatbotDailyUsage.update({
-      where: { chatbotId_day: { chatbotId: row.chatbotId, day: row.day } },
+    await tx.chatbotDailyUsage.updateMany({
+      where: { chatbotId: row.chatbotId, day: row.day },
       data: { aiTokensReserved: { decrement: row.estimatedTokens }, aiTokensUsed: { increment: actualTokens } },
     });
   });
@@ -110,10 +112,11 @@ export async function releaseReservation(reservationId: string): Promise<void> {
     });
     if (reservation.count === 0) return;
 
+    // updateMany: same rationale as reconcileReservation above — the counters may be gone already.
     const row = await tx.tokenReservation.findUniqueOrThrow({ where: { id: reservationId } });
-    await tx.usageCounter.update({ where: { id: row.usageCounterId }, data: { aiTokensReserved: { decrement: row.estimatedTokens } } });
-    await tx.chatbotDailyUsage.update({
-      where: { chatbotId_day: { chatbotId: row.chatbotId, day: row.day } },
+    await tx.usageCounter.updateMany({ where: { id: row.usageCounterId }, data: { aiTokensReserved: { decrement: row.estimatedTokens } } });
+    await tx.chatbotDailyUsage.updateMany({
+      where: { chatbotId: row.chatbotId, day: row.day },
       data: { aiTokensReserved: { decrement: row.estimatedTokens } },
     });
   });
