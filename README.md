@@ -9,17 +9,24 @@ disagree, the contract file wins (see `docs/PROJECT_SPEC.md` §12).
 
 ## Status
 
-Phase 0 (Contracts) is in place: shared schema, error codes, socket contract, runtime defaults, ADRs
-and the monorepo/CI skeleton. Product features (auth, RAG, realtime handoff, billing) are built out
-phase by phase per the build plan in `docs/PROJECT_SPEC.md` §13.
+Phases 0–1 are in place: shared schema/contracts, monorepo/CI skeleton, and a working auth +
+workspace + RBAC backend verified end-to-end (real Postgres/Redis, real HTTP requests). Remaining
+product features (RAG, realtime handoff, billing) are built out phase by phase per the build plan in
+`docs/PROJECT_SPEC.md` §13.
 
 | Phase | Scope | Status |
 |---|---|---|
 | 0. Contracts | schema, raw SQL, socket/error/defaults contracts, ADRs, monorepo, Docker Compose, CI | ✅ |
-| 1. Core SaaS | Auth, workspaces, membership, invitations, RBAC, tenant isolation | ⏳ |
+| 1. Core SaaS | Auth + refresh rotation, workspaces, membership, invitations, RBAC, tenant isolation | ✅ |
 | 2. Knowledge + AI | Ingestion, embeddings, pgvector RAG, citations, widget, eval set | ⏳ |
 | 3. Realtime support | Conversations, socket auth, handoff state machine, agent inbox | ⏳ |
 | 4. Commercial + delivery | Quota reservation, plans, Stripe, E2E, deploy | ⏳ |
+
+Phase 1 highlights: email/password auth (argon2id), rotating refresh cookie with reuse-detection
+(a stolen/replayed token burns the whole token family), workspace CRUD with soft delete, copy-link
+invitations (SHA-256 token hash, 72h expiry, email-bound), the `canManageMember` RBAC policy (Section
+9) covered by a full role matrix, and tenant isolation enforced by `OrgMembershipGuard` (cross-tenant
+access returns 404, never 403).
 
 ## Architecture
 

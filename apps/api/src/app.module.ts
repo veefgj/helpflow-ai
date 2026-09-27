@@ -1,8 +1,14 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import { LoggerModule } from "nestjs-pino";
 import { loadEnv } from "@helpflow/config";
 import { HealthModule } from "./health/health.module";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
+import { RedisModule } from "./common/redis/redis.module";
+import { AuthGuard } from "./common/guards/auth.guard";
+import { AuthModule } from "./auth/auth.module";
+import { OrganizationsModule } from "./organizations/organizations.module";
+import { InvitationsModule } from "./invitations/invitations.module";
 
 const env = loadEnv();
 
@@ -16,13 +22,18 @@ const env = loadEnv();
         redact: ["req.headers.authorization", "req.headers.cookie", "res.headers['set-cookie']"],
         customProps: (req: any) => ({
           requestId: req.requestId,
-          organizationId: req.organizationId,
+          organizationId: req.params?.orgId,
           userId: req.userId,
         }),
       },
     }),
+    RedisModule,
     HealthModule,
+    AuthModule,
+    OrganizationsModule,
+    InvitationsModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
