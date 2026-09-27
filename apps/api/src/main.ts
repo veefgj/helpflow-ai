@@ -11,7 +11,9 @@ import { RedisIoAdapter } from "./common/realtime/redis-io.adapter";
 async function bootstrap() {
   const env = loadEnv(); // exits the process on invalid/missing config — must run before anything else
 
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // rawBody: true exposes req.rawBody so the Stripe webhook controller can verify the signature
+  // against the exact wire bytes (the JSON body-parser's re-serialized body would never match).
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   app.useLogger(app.get(Logger));
   app.use(cookieParser());
   app.useWebSocketAdapter(new RedisIoAdapter(app));

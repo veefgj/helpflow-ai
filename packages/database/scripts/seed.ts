@@ -7,13 +7,13 @@ import { PrismaClient, type PlanCode } from "../generated/prisma/client";
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
 
 async function main() {
-  const plans: Array<{ code: PlanCode; name: string; def: (typeof DEFAULTS)["plans"][keyof typeof DEFAULTS.plans] }> = [
+  const plans: Array<{ code: PlanCode; name: string; def: (typeof DEFAULTS)["plans"][keyof typeof DEFAULTS.plans]; stripePriceId?: string }> = [
     { code: "FREE", name: "Free", def: DEFAULTS.plans.FREE },
-    { code: "PRO", name: "Pro", def: DEFAULTS.plans.PRO },
+    { code: "PRO", name: "Pro", def: DEFAULTS.plans.PRO, stripePriceId: process.env.STRIPE_PRICE_ID_PRO },
     { code: "BUSINESS", name: "Business", def: DEFAULTS.plans.BUSINESS },
   ];
 
-  for (const { code, name, def } of plans) {
+  for (const { code, name, def, stripePriceId } of plans) {
     await prisma.plan.upsert({
       where: { code },
       create: {
@@ -25,6 +25,7 @@ async function main() {
         monthlyAiTokens: def.monthlyAiTokens,
         monthlyConversations: def.monthlyConversations,
         selfServe: def.selfServe,
+        stripePriceId,
       },
       update: {
         name,
@@ -34,6 +35,7 @@ async function main() {
         monthlyAiTokens: def.monthlyAiTokens,
         monthlyConversations: def.monthlyConversations,
         selfServe: def.selfServe,
+        stripePriceId,
       },
     });
     console.log(`  ✓ plan ${code}`);

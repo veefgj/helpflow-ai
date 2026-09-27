@@ -18,6 +18,7 @@ import { WidgetModule } from "./widget/widget.module";
 import { ConversationsModule } from "./conversations/conversations.module";
 import { AgentModule } from "./agent/agent.module";
 import { QuotaModule } from "./quota/quota.module";
+import { BillingModule } from "./billing/billing.module";
 
 const env = loadEnv();
 
@@ -39,6 +40,7 @@ const env = loadEnv();
     RedisModule,
     RealtimeModule,
     QuotaModule,
+    BillingModule,
     QueuesModule,
     HealthModule,
     AuthModule,
