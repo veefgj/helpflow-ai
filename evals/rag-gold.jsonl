@@ -1,0 +1,24 @@
+{"question": "How many days do I have to request a full refund?", "expectedDocumentKey": "refund-policy", "expectedPage": null, "expectedFacts": ["30 days for a full refund"], "answerable": true}
+{"question": "What happens if I ask for a refund after 30 days?", "expectedDocumentKey": "refund-policy", "expectedPage": null, "expectedFacts": ["issued as store credit only after 30 days"], "answerable": true}
+{"question": "Do enterprise customers get a longer refund window?", "expectedDocumentKey": "refund-policy", "expectedPage": null, "expectedFacts": ["enterprise annual contracts get a 60 day refund window"], "answerable": true}
+{"question": "How do I actually submit a refund request?", "expectedDocumentKey": "refund-policy", "expectedPage": null, "expectedFacts": ["submitted through the billing portal"], "answerable": true}
+{"question": "How long does it take for an approved refund to be processed?", "expectedDocumentKey": "refund-policy", "expectedPage": null, "expectedFacts": ["processed within 5 business days of approval"], "answerable": true}
+{"question": "Are shipping fees refunded when I return an item?", "expectedDocumentKey": "refund-policy", "expectedPage": null, "expectedFacts": ["shipping fees are non-refundable except for defects or our shipping errors"], "answerable": true}
+{"question": "How long does standard shipping take?", "expectedDocumentKey": "shipping-policy", "expectedPage": null, "expectedFacts": ["5 to 7 business days"], "answerable": true}
+{"question": "Is standard shipping ever free?", "expectedDocumentKey": "shipping-policy", "expectedPage": null, "expectedFacts": ["free on orders over $50"], "answerable": true}
+{"question": "How much extra does express shipping cost and how fast is it?", "expectedDocumentKey": "shipping-policy", "expectedPage": null, "expectedFacts": ["express shipping costs an additional $15", "takes 1 to 2 business days"], "answerable": true}
+{"question": "How long does international shipping take?", "expectedDocumentKey": "shipping-policy", "expectedPage": null, "expectedFacts": ["10 to 20 business days"], "answerable": true}
+{"question": "Can I get express shipping to a P.O. box?", "expectedDocumentKey": "shipping-policy", "expectedPage": null, "expectedFacts": ["cannot ship to P.O. boxes for express or international orders"], "answerable": true}
+{"question": "When will I get a tracking link after my order ships?", "expectedDocumentKey": "shipping-policy", "expectedPage": null, "expectedFacts": ["tracking link sent by email", "updates can take up to 24 hours to appear"], "answerable": true}
+{"question": "How do I permanently delete my account?", "expectedDocumentKey": "account-deletion", "expectedPage": null, "expectedFacts": ["delete from the Account Settings page"], "answerable": true}
+{"question": "Can I recover my account after I delete it?", "expectedDocumentKey": "account-deletion", "expectedPage": null, "expectedFacts": ["recoverable within 30 days by contacting support"], "answerable": true}
+{"question": "How long until my personal data is fully purged after deleting my account?", "expectedDocumentKey": "account-deletion", "expectedPage": null, "expectedFacts": ["personal data purged within 90 days"], "answerable": true}
+{"question": "Do you keep any records after I delete my account?", "expectedDocumentKey": "account-deletion", "expectedPage": null, "expectedFacts": ["billing records retained for 7 years for tax law"], "answerable": true}
+{"question": "Does deleting my account take effect immediately for logging in?", "expectedDocumentKey": "account-deletion", "expectedPage": null, "expectedFacts": ["deletion takes effect immediately for login purposes"], "answerable": true}
+{"question": "Do you offer gift cards for purchases?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
+{"question": "What is your student discount policy?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
+{"question": "Can I pay in installments with a payment plan?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
+{"question": "Do you have a physical store I can visit?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
+{"question": "What programming languages does your API support?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
+{"question": "Can I transfer my account to another person?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
+{"question": "What is your policy on carbon offsets for shipping?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}

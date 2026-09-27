@@ -15,6 +15,7 @@ env:
   JWT_ACCESS_SECRET: ci-access-secret-min-32-characters-long
   VISITOR_TOKEN_SECRET: ci-visitor-secret-min-32-characters-long
   REFRESH_COOKIE_SECRET: ci-refresh-secret-min-32-characters-long
+  AI_PROVIDER: fake
   OPENAI_API_KEY: sk-ci-placeholder
   LLM_CHAT_MODEL: gpt-4o-mini
   EMBEDDING_MODEL: text-embedding-3-small

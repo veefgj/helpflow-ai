@@ -3,11 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "eval:rag": "tsx run-eval.ts",
+    "seed:corpus": "tsx --env-file-if-exists=../.env seed-eval-corpus.ts",
+    "eval:rag": "tsx --env-file-if-exists=../.env run-eval.ts",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no lint configured for evals'"
   },
   "dependencies": {
+    "@helpflow/ai": "workspace:*",
     "@helpflow/config": "workspace:*",
     "@helpflow/database": "workspace:*"
   },

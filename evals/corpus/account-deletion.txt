@@ -1,0 +1,8 @@
+Account Deletion Policy
+
+Users can permanently delete their account from the Account Settings page under "Delete my
+account". Deletion takes effect immediately for login purposes, but the account can still be
+recovered within 30 days by contacting support. After 30 days the account cannot be recovered.
+All personal data associated with a deleted account is fully purged from our systems within 90
+days, in line with our data retention policy. Billing records are retained for 7 years as required
+by tax law, even after account deletion.

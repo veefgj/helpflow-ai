@@ -1,0 +1,21 @@
+{
+  "name": "@helpflow/ai",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no lint configured for ai'",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@helpflow/config": "workspace:*",
+    "js-tiktoken": "^1.0.15",
+    "openai": "^4.77.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

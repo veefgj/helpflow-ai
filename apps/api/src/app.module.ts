@@ -9,6 +9,11 @@ import { AuthGuard } from "./common/guards/auth.guard";
 import { AuthModule } from "./auth/auth.module";
 import { OrganizationsModule } from "./organizations/organizations.module";
 import { InvitationsModule } from "./invitations/invitations.module";
+import { QueuesModule } from "./common/queues/queues.module";
+import { ChatbotsModule } from "./chatbots/chatbots.module";
+import { KnowledgeBasesModule } from "./knowledge-bases/knowledge-bases.module";
+import { DocumentsModule } from "./documents/documents.module";
+import { WidgetModule } from "./widget/widget.module";
 
 const env = loadEnv();
 
@@ -28,10 +33,15 @@ const env = loadEnv();
       },
     }),
     RedisModule,
+    QueuesModule,
     HealthModule,
     AuthModule,
     OrganizationsModule,
     InvitationsModule,
+    ChatbotsModule,
+    KnowledgeBasesModule,
+    DocumentsModule,
+    WidgetModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })

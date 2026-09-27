@@ -1,9 +1,5 @@
 // HelpFlow AI — seeds the `plans` table from DEFAULTS.plans (packages/config/defaults.ts).
-// Safe to re-run: upserts by unique `code`.
-import { join } from "node:path";
-import { config } from "dotenv";
-config({ path: join(__dirname, "..", "..", "..", ".env") });
-
+// Safe to re-run: upserts by unique `code`. Env vars come from `--env-file-if-exists` (package.json).
 import { PrismaPg } from "@prisma/adapter-pg";
 import { DEFAULTS } from "@helpflow/config/defaults";
 import { PrismaClient, type PlanCode } from "../generated/prisma/client";

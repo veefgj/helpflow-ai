@@ -9,24 +9,40 @@ disagree, the contract file wins (see `docs/PROJECT_SPEC.md` §12).
 
 ## Status
 
-Phases 0–1 are in place: shared schema/contracts, monorepo/CI skeleton, and a working auth +
-workspace + RBAC backend verified end-to-end (real Postgres/Redis, real HTTP requests). Remaining
-product features (RAG, realtime handoff, billing) are built out phase by phase per the build plan in
-`docs/PROJECT_SPEC.md` §13.
+Phases 0–2 are in place: shared schema/contracts, a working auth + workspace + RBAC backend, and a
+full RAG pipeline (ingestion → embeddings → pgvector retrieval → cited streamed answers) — all
+verified end-to-end against real Postgres/Redis/S3-compatible storage, not just typechecked. Remaining
+product features (full handoff state machine, billing) are built out phase by phase per the build
+plan in `docs/PROJECT_SPEC.md` §13.
 
 | Phase | Scope | Status |
 |---|---|---|
 | 0. Contracts | schema, raw SQL, socket/error/defaults contracts, ADRs, monorepo, Docker Compose, CI | ✅ |
 | 1. Core SaaS | Auth + refresh rotation, workspaces, membership, invitations, RBAC, tenant isolation | ✅ |
-| 2. Knowledge + AI | Ingestion, embeddings, pgvector RAG, citations, widget, eval set | ⏳ |
-| 3. Realtime support | Conversations, socket auth, handoff state machine, agent inbox | ⏳ |
+| 2. Knowledge + AI | Ingestion, embeddings, pgvector RAG, citations, widget, eval set | ✅ |
+| 3. Realtime support | Full T1–T9 handoff state machine, timers, agent inbox | ⏳ |
 | 4. Commercial + delivery | Quota reservation, plans, Stripe, E2E, deploy | ⏳ |
 
-Phase 1 highlights: email/password auth (argon2id), rotating refresh cookie with reuse-detection
+**Phase 1 highlights:** email/password auth (argon2id), rotating refresh cookie with reuse-detection
 (a stolen/replayed token burns the whole token family), workspace CRUD with soft delete, copy-link
 invitations (SHA-256 token hash, 72h expiry, email-bound), the `canManageMember` RBAC policy (Section
 9) covered by a full role matrix, and tenant isolation enforced by `OrgMembershipGuard` (cross-tenant
 access returns 404, never 403).
+
+**Phase 2 highlights:** chatbot + knowledge base CRUD (creating a chatbot auto-attaches a default
+KB); document upload validated by size/extension/MIME/magic-bytes and streamed to S3-compatible
+storage; a worker pipeline that parses PDF/TXT, chunks (800 tokens/120 overlap, per-page so
+citations stay accurate), embeds in batches, and persists vectors via raw SQL (Prisma can't write
+`vector` columns) — with BullMQ's own retry/backoff for transient failures and immediate `FAILED`
+for non-retryable ones (encrypted PDF, too many pages, no text); a widget session (HMAC visitor
+token) and Socket.IO `/widget` namespace that lazily creates the conversation on the first message
+(T1) and streams a grounded, cited answer via `ai:started`/`ai:chunk`/`ai:completed`, validating
+every citation against the chunks actually supplied to the model; a per-chatbot CSP
+`frame-ancestors` embedding policy enforced by `apps/widget`'s middleware; and a real `pnpm eval:rag`
+runner (Hit@5, citation correctness, LLM-judged faithfulness, correct-refusal rate) against a small
+seeded knowledge base, reusing the exact retrieval/prompt/citation logic the API runs in production.
+A swappable `AI_PROVIDER=fake` stub (deterministic, no network) lets the whole pipeline run and be
+tested without an OpenAI key — set `AI_PROVIDER=openai` for real answers and a real eval report.
 
 ## Architecture
 
@@ -34,14 +50,16 @@ Modular monolith + worker (`docs/PROJECT_SPEC.md` §3):
 
 ```
 apps/web       Next.js dashboard + agent inbox
-apps/widget    iframe chat widget + loader.js
+apps/widget    iframe chat widget + loader.js + CSP middleware
 apps/api       NestJS REST + Socket.IO (/widget, /agent)
 apps/worker    BullMQ processors (ingestion, conversation timers, maintenance)
-packages/database  Prisma schema, raw SQL, repositories
+packages/database  Prisma schema, raw SQL repositories (vectors, messages)
 packages/types      Shared DTOs, error codes, socket event contract
 packages/config     Runtime defaults, env schema (zod)
+packages/ai         LLM/embedding provider adapter (+ fake stub), chunker, citations, retrieval, prompts
+packages/storage    S3-compatible object storage client (R2 in prod, LocalStack locally)
 packages/ui         Shared React components
-evals/              RAG gold set + eval runner
+evals/              RAG gold set, seed corpus, and eval runner
 docs/adr/           Architecture decision records
 ```
 
@@ -50,14 +68,17 @@ docs/adr/           Architecture decision records
 Requires Node 24+, pnpm 9+, and Docker.
 
 ```bash
-cp .env.example .env          # fill in OPENAI_API_KEY at minimum for AI features
-docker compose up -d          # Postgres+pgvector, Redis, MinIO
+cp .env.example .env          # AI_PROVIDER=fake by default — works with no OpenAI key
+docker compose up -d          # Postgres+pgvector, Redis, S3-compatible storage (ADR-003)
 pnpm install
 pnpm run db:generate
 pnpm run db:migrate:deploy    # applies Prisma migrations + raw SQL constraints + pgvector version check
 pnpm run db:seed              # seeds the Free/Pro/Business plans
 pnpm run dev                  # starts web, widget, api and worker together (Turborepo)
 ```
+
+For real grounded answers (and a real `pnpm eval:rag` report), set `AI_PROVIDER=openai` and a real
+`OPENAI_API_KEY` in `.env`.
 
 - Dashboard: http://localhost:3000
 - API: http://localhost:4000 (health: `/health`, readiness: `/ready`)
@@ -69,9 +90,14 @@ pnpm run dev                  # starts web, widget, api and worker together (Tur
 pnpm run lint
 pnpm run typecheck
 pnpm run test:unit
-pnpm run test:integration   # requires Postgres + Redis running
-pnpm run eval:rag           # RAG quality report (Phase 2+, real OpenAI key required)
+pnpm run test:integration   # requires Postgres + Redis + object storage running
+pnpm run eval:rag           # seeds a small KB and reports Hit@5/citations/faithfulness/refusal rate
 ```
+
+`eval:rag` runs against whichever `AI_PROVIDER` is configured — meaningful for Hit@5 and
+correct-refusal even with the fake stub, but citation-correctness and faithfulness need
+`AI_PROVIDER=openai` for a real quality signal (the tool prints a warning when it's running against
+the stub).
 
 ## Documentation
 

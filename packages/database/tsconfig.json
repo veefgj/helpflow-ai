@@ -5,6 +5,6 @@
     "rootDir": ".",
     "resolveJsonModule": true
   },
-  "include": ["*.ts", "scripts/**/*.ts"],
+  "include": ["*.ts", "scripts/**/*.ts", "repositories/**/*.ts", "test/**/*.ts"],
   "exclude": ["generated"]
 }

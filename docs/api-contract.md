@@ -77,6 +77,7 @@ Realtime contract (Socket.IO namespaces, events, payloads, ack shape) lives in
 | Method | Path | Who | Notes |
 |---|---|---|---|
 | GET | /c/:chatbotId | Public | iframe HTML with per-chatbot CSP frame-ancestors |
+| GET | /api/widget/chatbots/:chatbotId/embed-policy | Public | {allowedDomains} — read by apps/widget's middleware to set the CSP header |
 | POST | /api/widget/session | Public (rate limited) | {chatbotId, visitorToken?} → {visitorToken, config, conversation?, messages} |
 | GET | /api/widget/conversations/current/messages | Visitor token | ?afterSeq=&limit= |
 | POST | /api/widget/conversations/:id/handoff | Visitor token | T2 |

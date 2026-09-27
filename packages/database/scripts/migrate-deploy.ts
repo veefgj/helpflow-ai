@@ -1,13 +1,13 @@
 // HelpFlow AI — CI/CD "Main" stage (Section 11): prisma migrate deploy, then the raw SQL migration
 // (Appendix B), then a pgvector version gate. Exits non-zero on any failure so the pipeline stops
 // before the new API version starts.
+// Env vars come from `--env-file-if-exists=../../.env` (see package.json) — loaded by Node itself
+// before this module graph evaluates, so @helpflow/database's `prisma` singleton (constructed at
+// import time) always sees the right DATABASE_URL regardless of import order.
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { config } from "dotenv";
 import { Client } from "pg";
-
-config({ path: join(__dirname, "..", "..", "..", ".env") });
 
 const RAW_SQL_ALREADY_EXISTS = new Set(["42710", "42P07", "42P16"]); // duplicate_object, duplicate_table, invalid_table_definition
 

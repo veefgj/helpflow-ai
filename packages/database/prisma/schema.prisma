@@ -419,6 +419,9 @@ model Message {
   content         String
   streamStatus    MessageStreamStatus?
   citations       Json? /// Citation[] validated against the retrieval set (packages/types)
+  /// AI messages only: mirrors MessageDto.insufficientKnowledge (packages/types/socket-events.ts) —
+  /// persisted so a client resyncing later sees the same flag the live stream announced.
+  insufficientKnowledge Boolean        @default(false)
   retrieval       Json? /// debug: [{chunkId, distance}] used for this answer; never sent to the widget
   createdAt       DateTime             @default(now())
 

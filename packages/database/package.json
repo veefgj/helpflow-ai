@@ -7,8 +7,8 @@
   "scripts": {
     "generate": "prisma generate",
     "migrate": "prisma migrate dev",
-    "migrate:deploy": "tsx scripts/migrate-deploy.ts",
-    "seed": "tsx scripts/seed.ts",
+    "migrate:deploy": "tsx --env-file-if-exists=../../.env scripts/migrate-deploy.ts",
+    "seed": "tsx --env-file-if-exists=../../.env scripts/seed.ts",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no lint configured for database'",
     "test:integration": "vitest run --config vitest.config.ts"

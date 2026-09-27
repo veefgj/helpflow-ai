@@ -21,6 +21,9 @@ const EnvSchema = z.object({
   REFRESH_COOKIE_SECRET: z.string().min(32),
 
   OPENAI_API_KEY: z.string().min(1),
+  /** "fake" runs the deterministic in-process stub instead of calling OpenAI — no key needed
+   * (Section 10 "E2E ... with a stubbed LLM provider (deterministic stream)"). */
+  AI_PROVIDER: z.enum(["openai", "fake"]).default("openai"),
   LLM_CHAT_MODEL: z.string().min(1),
   EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-small"),
   EMBEDDING_DIM: z.coerce.number().int().positive().default(1536),
