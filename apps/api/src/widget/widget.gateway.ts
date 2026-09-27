@@ -14,13 +14,14 @@ import {
 import type { Server, Socket } from "socket.io";
 import { prisma, insertMessageSerialized } from "@helpflow/database";
 import { loadEnv, DEFAULTS } from "@helpflow/config";
-import { ApiErrorCode } from "@helpflow/types";
+import { ApiErrorCode, HelpFlowApiException } from "@helpflow/types";
 import type { AckResult, WidgetSendMessagePayload, WidgetSendMessageResult } from "@helpflow/types";
 import { toConversationDto } from "../common/mappers/conversation.mapper";
 import { toMessageDto } from "../common/mappers/message.mapper";
 import { conversationRoom, RealtimeEmitterService } from "../common/realtime/realtime-emitter.service";
 import { AiGenLockService } from "../ai-reply/ai-gen-lock.service";
 import { AiReplyService } from "../ai-reply/ai-reply.service";
+import { QuotaService } from "../quota/quota.service";
 import { verifyVisitorToken, type VisitorTokenPayload } from "./visitor-token";
 
 @WebSocketGateway({
@@ -37,6 +38,7 @@ export class WidgetGateway implements OnGatewayConnection, OnGatewayInit {
     @Inject(AiGenLockService) private readonly aiGenLock: AiGenLockService,
     @Inject(AiReplyService) private readonly aiReply: AiReplyService,
     @Inject(RealtimeEmitterService) private readonly realtime: RealtimeEmitterService,
+    @Inject(QuotaService) private readonly quota: QuotaService,
   ) {}
 
   afterInit(server: Server): void {
@@ -92,6 +94,14 @@ export class WidgetGateway implements OnGatewayConnection, OnGatewayInit {
     });
     const isNewConversation = !conversation;
     if (!conversation) {
+      try {
+        await this.quota.checkAndReserveConversation(visitor.organizationId);
+      } catch (err) {
+        if (err instanceof HelpFlowApiException) {
+          return { ok: false, error: { code: err.code, message: err.message, requestId: "widget-socket", details: err.details } };
+        }
+        throw err;
+      }
       conversation = await prisma.conversation.create({
         data: { organizationId: visitor.organizationId, chatbotId: visitor.chatbotId, customerId: visitor.customerId },
       });
@@ -132,12 +142,12 @@ export class WidgetGateway implements OnGatewayConnection, OnGatewayInit {
             onStarted: (streamId) => this.realtime.emitToConversation(conversationId, "ai:started", { conversationId, streamId }),
             onChunk: (streamId, index, delta) => this.realtime.emitToConversation(conversationId, "ai:chunk", { conversationId, streamId, index, delta }),
             onCompleted: (msg) => this.realtime.emitToConversation(conversationId, "ai:completed", { conversationId, message: toMessageDto(msg) }),
-            onFailed: (streamId, msg, errorMessage) =>
+            onFailed: (streamId, msg, errorCode, errorMessage) =>
               this.realtime.emitToConversation(conversationId, "ai:failed", {
                 conversationId,
                 streamId,
                 message: msg ? toMessageDto(msg) : null,
-                error: { code: ApiErrorCode.LLM_UNAVAILABLE, message: errorMessage, requestId: "ai-reply" },
+                error: { code: errorCode, message: errorMessage, requestId: "ai-reply" },
               }),
           },
         })

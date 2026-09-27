@@ -17,6 +17,13 @@ function uniqueEmail(label: string): string {
   return email;
 }
 
+// Section 8: FREE plan allows exactly 1 agent seat (owner included), so any test inviting a
+// second member needs a plan that permits it — there's no Stripe checkout to exercise in tests.
+async function upgradeToPro(organizationId: string): Promise<void> {
+  const pro = await prisma.plan.findUniqueOrThrow({ where: { code: "PRO" } });
+  await prisma.subscription.update({ where: { organizationId }, data: { planId: pro.id } });
+}
+
 function extractRefreshCookie(res: request.Response): string {
   const setCookie = res.headers["set-cookie"] as unknown as string[] | undefined;
   const raw = setCookie?.find((c) => c.startsWith("hf_rt="));
@@ -88,6 +95,7 @@ describe("Auth + tenant isolation + RBAC (Phase 1)", () => {
     const ownerToken = await registerAndLogin(owner, uniqueEmail("owner-inv"));
     const org = await request(server).post("/api/orgs").set("Authorization", `Bearer ${ownerToken}`).send({ name: "Invite Co" });
     const orgId = org.body.id;
+    await upgradeToPro(orgId);
 
     const agentEmail = uniqueEmail("agent");
     const invite = await request(server)
@@ -117,6 +125,7 @@ describe("Auth + tenant isolation + RBAC (Phase 1)", () => {
     const owner = request.agent(server);
     const ownerToken = await registerAndLogin(owner, uniqueEmail("owner-mismatch"));
     const org = await request(server).post("/api/orgs").set("Authorization", `Bearer ${ownerToken}`).send({ name: "Mismatch Co" });
+    await upgradeToPro(org.body.id);
 
     const invite = await request(server)
       .post(`/api/orgs/${org.body.id}/invitations`)
@@ -160,6 +169,7 @@ describe("Auth + tenant isolation + RBAC (Phase 1)", () => {
     const ownerToken = await registerAndLogin(owner, uniqueEmail("owner-transfer"));
     const org = await request(server).post("/api/orgs").set("Authorization", `Bearer ${ownerToken}`).send({ name: "Transfer Co" });
     const orgId = org.body.id;
+    await upgradeToPro(orgId);
 
     const adminEmail = uniqueEmail("future-owner");
     const invite = await request(server)

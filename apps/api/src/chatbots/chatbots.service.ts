@@ -1,14 +1,18 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { prisma } from "@helpflow/database";
 import { loadEnv } from "@helpflow/config";
 import { ApiErrorCode, HelpFlowApiException } from "@helpflow/types";
+import { QuotaService } from "../quota/quota.service";
 import type { CreateChatbotDto } from "./dto/create-chatbot.dto";
 import type { UpdateChatbotDto } from "./dto/update-chatbot.dto";
 
 @Injectable()
 export class ChatbotsService {
+  constructor(@Inject(QuotaService) private readonly quota: QuotaService) {}
+
   /** Creating a chatbot auto-creates and attaches one default knowledge base (Section 4). */
   async create(organizationId: string, dto: CreateChatbotDto) {
+    await this.quota.assertResourceLimit(organizationId, "chatbots");
     return prisma.$transaction(async (tx) => {
       const chatbot = await tx.chatbot.create({ data: { organizationId, name: dto.name, allowedDomains: [] } });
       const kb = await tx.knowledgeBase.create({ data: { organizationId, name: `${dto.name} — default`, isDefault: true } });

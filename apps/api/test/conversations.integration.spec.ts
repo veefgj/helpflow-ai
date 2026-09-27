@@ -29,6 +29,13 @@ async function registerAndLogin(email: string) {
   return { accessToken: res.body.accessToken as string, userId: res.body.user.id as string };
 }
 
+// Section 8: FREE plan allows exactly 1 agent seat (owner included); this suite needs an owner
+// plus two agents, so the test org is upgraded to PRO — there's no Stripe checkout to exercise here.
+async function upgradeToPro(orgId: string): Promise<void> {
+  const pro = await prisma.plan.findUniqueOrThrow({ where: { code: "PRO" } });
+  await prisma.subscription.update({ where: { organizationId: orgId }, data: { planId: pro.id } });
+}
+
 async function inviteAndAccept(email: string, accessToken: string) {
   const invite = await request(baseUrl)
     .post(`/api/orgs/${organizationId}/invitations`)
@@ -55,6 +62,7 @@ describe("Conversation state machine over REST (Phase 3)", () => {
     ownerToken = owner.accessToken;
     const org = await request(baseUrl).post("/api/orgs").set("Authorization", `Bearer ${ownerToken}`).send({ name: "Conv Co" });
     organizationId = org.body.id;
+    await upgradeToPro(organizationId);
     const chatbot = await request(baseUrl).post(`/api/orgs/${organizationId}/chatbots`).set("Authorization", `Bearer ${ownerToken}`).send({ name: "Bot" });
     chatbotId = chatbot.body.id;
 

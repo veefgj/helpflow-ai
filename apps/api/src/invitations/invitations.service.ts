@@ -1,10 +1,11 @@
 // Section 9 "Invitations": SHA-256 token hash, 72h expiry, single use, accepting user's email must
 // match. Every failure path returns the same INVITATION_INVALID — never reveal which check failed.
 import { createHash, randomBytes } from "node:crypto";
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { prisma } from "@helpflow/database";
 import { DEFAULTS, loadEnv } from "@helpflow/config";
 import { ApiErrorCode, HelpFlowApiException } from "@helpflow/types";
+import { QuotaService } from "../quota/quota.service";
 import type { CreateInvitationDto } from "./dto/create-invitation.dto";
 
 function hashToken(rawToken: string): string {
@@ -13,7 +14,10 @@ function hashToken(rawToken: string): string {
 
 @Injectable()
 export class InvitationsService {
+  constructor(@Inject(QuotaService) private readonly quota: QuotaService) {}
+
   async create(organizationId: string, invitedById: string, dto: CreateInvitationDto) {
+    await this.quota.assertResourceLimit(organizationId, "agents");
     const rawToken = randomBytes(32).toString("hex");
     const invitation = await prisma.invitation.create({
       data: {

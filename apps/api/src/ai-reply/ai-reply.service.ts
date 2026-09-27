@@ -3,11 +3,13 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { prisma, insertMessageSerialized, type Message } from "@helpflow/database";
-import { DEFAULTS } from "@helpflow/config";
-import { buildChatMessages, getLlmProvider, parseTrailer, validateCitations, type ChatMessage, type HistoryMessage } from "@helpflow/ai";
+import { DEFAULTS, resolve } from "@helpflow/config";
+import { buildChatMessages, countTokens, getLlmProvider, parseTrailer, validateCitations, type ChatMessage, type HistoryMessage } from "@helpflow/ai";
+import { ApiErrorCode } from "@helpflow/types";
 import { AiGenLockService } from "./ai-gen-lock.service";
 import { AiGenerationRegistry } from "./ai-generation-registry.service";
 import { RetrievalService } from "./retrieval.service";
+import { QuotaService } from "../quota/quota.service";
 
 const INSUFFICIENT_KNOWLEDGE_FALLBACK =
   "I don't have information about that in what I've been given. Would you like to talk to a human?";
@@ -16,7 +18,7 @@ export interface AiReplyCallbacks {
   onStarted: (streamId: string) => void;
   onChunk: (streamId: string, index: number, delta: string) => void;
   onCompleted: (message: Message) => void;
-  onFailed: (streamId: string, message: Message | null, errorMessage: string) => void;
+  onFailed: (streamId: string, message: Message | null, errorCode: ApiErrorCode, errorMessage: string) => void;
 }
 
 interface StreamOutcome {
@@ -35,6 +37,7 @@ export class AiReplyService {
     @Inject(AiGenLockService) private readonly lock: AiGenLockService,
     @Inject(RetrievalService) private readonly retrieval: RetrievalService,
     @Inject(AiGenerationRegistry) private readonly registry: AiGenerationRegistry,
+    @Inject(QuotaService) private readonly quota: QuotaService,
   ) {}
 
   async generateReply(params: {
@@ -98,6 +101,22 @@ export class AiReplyService {
       customerMessage: params.customerMessage,
     });
 
+    // Section 8 "Token reservation": estimate = counted prompt tokens + maxAnswerTokens, reserved
+    // atomically against both the monthly and (per-chatbot) daily counters before the LLM is called.
+    const estimatedTokens = messages.reduce((sum, m) => sum + countTokens(m.content), 0) + DEFAULTS.rag.maxAnswerTokens;
+    const reservation = await this.quota.reserveAiTokens({
+      organizationId: params.organizationId,
+      chatbotId: params.chatbotId,
+      conversationId: params.conversationId,
+      estimatedTokens,
+      dailyCap: resolve(chatbot.dailyTokenCap, DEFAULTS.quota.dailyTokenCapPerChatbot),
+    });
+    if (!reservation.ok) {
+      const code = reservation.reason === "QUOTA_EXCEEDED" ? ApiErrorCode.QUOTA_EXCEEDED : ApiErrorCode.DAILY_CAP_EXCEEDED;
+      params.callbacks.onFailed(streamId, null, code, "The AI usage limit for this period has been reached");
+      return;
+    }
+
     const provider = getLlmProvider();
     let chunkIndex = 0;
     const emitChunk = (delta: string) => params.callbacks.onChunk(streamId, chunkIndex++, delta);
@@ -110,7 +129,8 @@ export class AiReplyService {
       }
     } catch (err) {
       this.logger.error(`AI generation failed for conversation ${params.conversationId}`, err as Error);
-      params.callbacks.onFailed(streamId, null, "The AI provider is temporarily unavailable");
+      await this.quota.release(reservation.reservationId);
+      params.callbacks.onFailed(streamId, null, ApiErrorCode.LLM_UNAVAILABLE, "The AI provider is temporarily unavailable");
       return;
     }
 
@@ -129,6 +149,7 @@ export class AiReplyService {
       retrieval: context.map((c) => ({ chunkId: c.chunkId, distance: c.distance })),
     });
 
+    await this.quota.reconcile(reservation.reservationId, result.inputTokens + result.outputTokens);
     await prisma.aiUsage.create({
       data: {
         organizationId: params.organizationId,

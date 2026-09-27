@@ -7,14 +7,19 @@ import { DEFAULTS } from "@helpflow/config";
 import { buildDocumentStorageKey, deleteObject, putObject } from "@helpflow/storage";
 import { ApiErrorCode, HelpFlowApiException } from "@helpflow/types";
 import { DOCUMENT_PROCESSING_QUEUE } from "../common/queues/queues.module";
+import { QuotaService } from "../quota/quota.service";
 import { assertFileSize, detectDocumentType, validateMagicBytes } from "./upload-validation";
 
 @Injectable()
 export class DocumentsService {
-  constructor(@Inject(DOCUMENT_PROCESSING_QUEUE) private readonly queue: Queue) {}
+  constructor(
+    @Inject(DOCUMENT_PROCESSING_QUEUE) private readonly queue: Queue,
+    @Inject(QuotaService) private readonly quota: QuotaService,
+  ) {}
 
   async upload(organizationId: string, knowledgeBaseId: string, uploadedById: string, file: Express.Multer.File) {
     await this.requireKnowledgeBase(organizationId, knowledgeBaseId);
+    await this.quota.assertResourceLimit(organizationId, "documents");
 
     assertFileSize(file.size);
     const type = detectDocumentType(file.originalname, file.mimetype);
