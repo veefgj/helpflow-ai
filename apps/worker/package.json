@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "bundle": "node ../../scripts/bundle-app.mjs apps/worker src/main.ts dist/main.js",
     "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
     "start": "tsx --env-file-if-exists=../../.env src/main.ts",
     "lint": "echo 'linted from repo root: pnpm run lint'",

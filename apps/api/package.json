@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build": "nest build",
+    "bundle": "node ../../scripts/bundle-app.mjs apps/api src/main.ts dist/main.js",
     "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
     "start": "tsx --env-file-if-exists=../../.env src/main.ts",
     "lint": "echo 'linted from repo root: pnpm run lint'",

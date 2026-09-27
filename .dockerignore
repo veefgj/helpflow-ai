@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+.pnpm-store
+**/dist
+**/.next
+**/.turbo
+**/generated
+.git
+*.log
+docker-compose.yml
+.env
+.env.local

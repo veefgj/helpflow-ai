@@ -20,7 +20,7 @@ env:
   LLM_CHAT_MODEL: gpt-4o-mini
   EMBEDDING_MODEL: text-embedding-3-small
   EMBEDDING_DIM: "1536"
-  S3_ENDPOINT: http://localhost:9000
+  S3_ENDPOINT: http://localhost:4566
   S3_REGION: auto
   S3_BUCKET: helpflow-documents
   S3_ACCESS_KEY_ID: helpflow
@@ -52,6 +52,19 @@ jobs:
         ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      # ADR-003: LocalStack stands in for MinIO (see docker-compose.yml's comment) — same S3 API,
+      # freely pullable. apps/worker's document-processing tests exercise the real S3 client against it.
+      storage:
+        image: localstack/localstack:3
+        env:
+          SERVICES: s3
+          DEFAULT_REGION: us-east-1
+        ports: ["4566:4566"]
+        options: >-
+          --health-cmd "curl -sf http://localhost:4566/_localstack/health"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -97,6 +110,14 @@ jobs:
       - name: Apply migrations
         run: pnpm run db:migrate:deploy
 
+      - name: Seed plans (required before any org/subscription can be created)
+        run: pnpm run db:seed
+
+      - name: Create the S3 bucket in LocalStack
+        run: |
+          pipx install awscli-local >/dev/null 2>&1 || pip install awscli-local
+          awslocal --endpoint-url http://localhost:4566 s3 mb s3://helpflow-documents
+
       - name: Unit tests
         run: pnpm run test:unit
 
@@ -105,3 +126,10 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+      - name: Build production Docker image (ADR-002; not pushed — no registry configured)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: helpflow:ci
