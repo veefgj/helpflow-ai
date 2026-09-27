@@ -1,0 +1,518 @@
+// HelpFlow AI — Implementation Contract v1.2
+// Source of truth for persistence. Target: Prisma ORM 7.x + PostgreSQL 16+ with pgvector >= 0.8.
+// Connection URL lives in prisma.config.ts (Prisma 7). Vector columns, partial unique indexes and
+// the HNSW index are created by the raw SQL migration `0002_raw_constraints.sql` (Appendix B).
+// Conventions: ids are UUID strings; tables are snake_case plural (@@map); columns stay camelCase,
+// so raw SQL must quote them ("organizationId"). Every tenant-owned row carries organizationId.
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum Role {
+  OWNER
+  ADMIN
+  AGENT
+}
+
+/// Why a resource is unavailable. NULL = active. PLAN_LIMIT rows are re-enabled automatically on upgrade;
+/// USER rows are never re-enabled automatically.
+enum DisabledReason {
+  USER
+  PLAN_LIMIT
+}
+
+enum DocumentStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum DocumentType {
+  PDF
+  TXT
+}
+
+enum ConversationStatus {
+  AI_ACTIVE
+  WAITING_AGENT
+  AGENT_ACTIVE
+  CLOSED
+}
+
+enum CloseReason {
+  CLOSED_BY_AGENT
+  AGENT_UNAVAILABLE
+  INACTIVITY
+}
+
+enum UnavailablePolicy {
+  RESUME_AI
+  COLLECT_EMAIL
+}
+
+enum MessageSenderType {
+  CUSTOMER
+  AI
+  AGENT
+  SYSTEM
+}
+
+/// Only AI messages carry a stream status. STREAMING exists on the socket only — AI messages are
+/// inserted when the stream ends, so a persisted row is always final.
+enum MessageStreamStatus {
+  COMPLETED
+  FAILED
+  INTERRUPTED
+}
+
+enum PlanCode {
+  FREE
+  PRO
+  BUSINESS
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  UNPAID
+  INCOMPLETE
+  CANCELED
+}
+
+enum UsageType {
+  CHAT_COMPLETION
+  EMBEDDING_INGEST
+  EMBEDDING_QUERY
+}
+
+enum ReservationStatus {
+  RESERVED
+  RECONCILED
+  RELEASED
+}
+
+// ───────────────────────── Identity & tenancy ─────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique /// stored lower-cased
+  passwordHash String /// argon2id
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships   Membership[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+/// Refresh token rotation with reuse detection: a revoked token presented again revokes its whole family.
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  familyId   String
+  tokenHash  String    @unique /// SHA-256 of the opaque token; the raw token is only in the httpOnly cookie
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+model Organization {
+  id               String    @id @default(uuid())
+  name             String
+  slug             String    @unique
+  stripeCustomerId String?   @unique
+  /// Anchor for the internal monthly quota period while the org has no paid Stripe subscription.
+  quotaAnchorAt    DateTime  @default(now())
+  /// Soft delete: set first, then the cleanup job purges rows and object storage.
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  memberships    Membership[]
+  invitations    Invitation[]
+  subscription   Subscription?
+  chatbots       Chatbot[]
+  knowledgeBases KnowledgeBase[]
+  documents      Document[]
+  customers      Customer[]
+  conversations  Conversation[]
+  usageCounters  UsageCounter[]
+
+  @@map("organizations")
+}
+
+/// Exactly one OWNER per organization — enforced by partial unique index in raw SQL.
+model Membership {
+  id              String          @id @default(uuid())
+  organizationId  String
+  userId          String
+  role            Role
+  disabledReason  DisabledReason?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+/// Link-based invitation (no email provider in MVP). Single use, expires, bound to the invited email.
+model Invitation {
+  id             String    @id @default(uuid())
+  organizationId String
+  email          String /// lower-cased; accepting user's email must match
+  role           Role /// ADMIN or AGENT only (OWNER is never invited — use ownership transfer)
+  tokenHash      String    @unique
+  invitedById    String
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("invitations")
+}
+
+// ─────────────────────────── Plans & billing ───────────────────────────
+
+/// Seeded from DEFAULTS.plans. NULL limit = custom / not enforced (BUSINESS).
+model Plan {
+  id                    String   @id @default(uuid())
+  code                  PlanCode @unique
+  name                  String
+  maxChatbots           Int?
+  maxAgents             Int? /// counts OWNER + ADMIN + AGENT memberships that are active
+  maxDocuments          Int?
+  monthlyAiTokens       Int?
+  monthlyConversations  Int?
+  stripePriceId         String?  @unique
+  selfServe             Boolean  @default(true) /// BUSINESS = false → "Contact sales"
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+/// One row per organization. FREE orgs have a row with stripeSubscriptionId = NULL.
+model Subscription {
+  id                   String             @id @default(uuid())
+  organizationId       String             @unique
+  planId               String
+  status               SubscriptionStatus
+  stripeSubscriptionId String?            @unique
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean            @default(false)
+  /// `created` timestamp of the newest Stripe event applied; older events never overwrite newer state.
+  lastStripeEventAt    DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         Plan         @relation(fields: [planId], references: [id])
+
+  @@map("subscriptions")
+}
+
+/// Idempotency ledger for Stripe webhooks (id = Stripe event id, e.g. evt_...).
+model ProcessedWebhookEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
+
+  @@map("processed_webhook_events")
+}
+
+// ──────────────────────── Chatbots & knowledge ────────────────────────
+
+model Chatbot {
+  id                String            @id @default(uuid()) /// public identifier used by the widget — not a credential
+  organizationId    String
+  name              String
+  description       String?
+  welcomeMessage    String?
+  systemPrompt      String? /// tenant layer; always below platform safety instructions
+  model             String? /// NULL = LLM_CHAT_MODEL; otherwise must be in the plan's model allowlist
+  temperature       Float             @default(0.2)
+  allowedDomains    String[] /// hostnames, e.g. "shop.example.com" or "*.example.com"; drives CSP frame-ancestors
+  dailyTokenCap     Int? /// NULL = DEFAULTS.quota.dailyTokenCapPerChatbot
+  handoffTimeoutSec Int? /// NULL = DEFAULTS.handoff.waitingTimeoutSec
+  unavailablePolicy UnavailablePolicy @default(RESUME_AI)
+  disabledReason    DisabledReason?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  knowledgeBases ChatbotKnowledgeBase[]
+  conversations  Conversation[]
+
+  @@index([organizationId])
+  @@map("chatbots")
+}
+
+model KnowledgeBase {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  isDefault      Boolean  @default(false) /// auto-created with a chatbot in the MVP UX
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  chatbots     ChatbotKnowledgeBase[]
+  documents    Document[]
+
+  @@index([organizationId])
+  @@map("knowledge_bases")
+}
+
+/// N:M link. A knowledge base with any link cannot be deleted (Restrict) — detach first.
+model ChatbotKnowledgeBase {
+  chatbotId       String
+  knowledgeBaseId String
+  organizationId  String
+  createdAt       DateTime @default(now())
+
+  chatbot       Chatbot       @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Restrict)
+
+  @@id([chatbotId, knowledgeBaseId])
+  @@index([knowledgeBaseId])
+  @@map("chatbot_knowledge_bases")
+}
+
+model Document {
+  id              String          @id @default(uuid())
+  organizationId  String
+  knowledgeBaseId String
+  fileName        String
+  type            DocumentType
+  mimeType        String
+  sizeBytes       Int
+  pageCount       Int?
+  checksumSha256  String
+  storageKey      String          @unique /// org/{orgId}/kb/{kbId}/doc/{docId}/{sha256}.{ext}
+  status          DocumentStatus  @default(UPLOADED)
+  errorCode       String? /// DocumentErrorCode from packages/types/api-errors.ts
+  attempts        Int             @default(0)
+  disabledReason  DisabledReason?
+  uploadedById    String
+  processedAt     DateTime?
+  /// Deletion is two-phase and retryable: set deletedAt → purge chunks → delete object → delete row.
+  deletedAt       DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  knowledgeBase KnowledgeBase   @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  chunks        DocumentChunk[]
+
+  @@unique([knowledgeBaseId, checksumSha256]) /// same file cannot be uploaded twice into one KB
+  @@index([organizationId, knowledgeBaseId, status])
+  @@map("documents")
+}
+
+/// Written and queried with raw SQL only (Prisma cannot read/write vector columns).
+/// Dimension 1536 is locked by ADR-001; changing the embedding model means a new column + re-embed job.
+model DocumentChunk {
+  id              String                @id @default(uuid())
+  organizationId  String
+  knowledgeBaseId String
+  documentId      String
+  chunkIndex      Int
+  pageNumber      Int?
+  content         String
+  tokenCount      Int
+  embedding       Unsupported("vector(1536)")
+  embeddingModel  String
+  createdAt       DateTime              @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, chunkIndex])
+  @@index([organizationId, knowledgeBaseId])
+  @@map("document_chunks")
+}
+
+// ─────────────────────── Customers & conversations ───────────────────────
+
+model Customer {
+  id             String   @id @default(uuid())
+  organizationId String
+  visitorId      String /// random id minted by the server and carried inside the signed visitor token
+  name           String?
+  email          String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  lastSeenAt     DateTime @default(now())
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@unique([organizationId, visitorId])
+  @@map("customers")
+}
+
+/// At most one non-CLOSED conversation per (chatbotId, customerId) — partial unique index in raw SQL.
+/// Every status change is a conditional UPDATE ... WHERE status = <expected> (see Section 7).
+model Conversation {
+  id                 String             @id @default(uuid())
+  organizationId     String
+  chatbotId          String
+  customerId         String
+  status             ConversationStatus @default(AI_ACTIVE)
+  assignedAgentId    String? /// users.id; set only in AGENT_ACTIVE
+  handoffRequestedAt DateTime?
+  assignedAt         DateTime?
+  closedAt           DateTime?
+  closeReason        CloseReason?
+  lastMessageAt      DateTime           @default(now())
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  chatbot      Chatbot      @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  messages     Message[]
+
+  @@index([organizationId, status, lastMessageAt])
+  @@index([organizationId, assignedAgentId, status])
+  @@index([customerId, createdAt])
+  @@map("conversations")
+}
+
+/// Inserts are serialized per conversation (SELECT ... FOR UPDATE on the conversation row) so that
+/// seq commit order matches seq value order inside one conversation. Sync: WHERE conversationId = ? AND seq > ?.
+model Message {
+  id              String               @id @default(uuid())
+  organizationId  String
+  conversationId  String
+  seq             BigInt               @unique @default(autoincrement()) /// serialize as string in JSON
+  clientMessageId String? /// client-generated UUID for CUSTOMER/AGENT sends; NULL for AI/SYSTEM
+  senderType      MessageSenderType
+  senderId        String? /// users.id for AGENT, customers.id for CUSTOMER, NULL for AI/SYSTEM
+  content         String
+  streamStatus    MessageStreamStatus?
+  citations       Json? /// Citation[] validated against the retrieval set (packages/types)
+  retrieval       Json? /// debug: [{chunkId, distance}] used for this answer; never sent to the widget
+  createdAt       DateTime             @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, clientMessageId])
+  @@index([conversationId, seq])
+  @@map("messages")
+}
+
+// ───────────────────────────── Usage & quota ─────────────────────────────
+
+/// One row per organization per quota period (Stripe period for paid plans, internal monthly period for FREE).
+/// Reserve: UPDATE ... SET aiTokensReserved = aiTokensReserved + :est
+///          WHERE id = :id AND aiTokensUsed + aiTokensReserved + :est <= :limit
+model UsageCounter {
+  id                 String   @id @default(uuid())
+  organizationId     String
+  periodStart        DateTime
+  periodEnd          DateTime
+  aiTokensUsed       BigInt   @default(0)
+  aiTokensReserved   BigInt   @default(0)
+  conversationsCount Int      @default(0)
+  updatedAt          DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, periodStart])
+  @@map("usage_counters")
+}
+
+/// Abuse cap per chatbot per UTC day, reserved in the same transaction as the monthly counter.
+model ChatbotDailyUsage {
+  chatbotId        String
+  day              DateTime @db.Date
+  organizationId   String
+  aiTokensUsed     Int      @default(0)
+  aiTokensReserved Int      @default(0)
+
+  @@id([chatbotId, day])
+  @@map("chatbot_daily_usage")
+}
+
+/// Every reservation is settled exactly once (RECONCILED or RELEASED). A sweeper releases
+/// RESERVED rows older than DEFAULTS.quota.reservationStaleMin (crashed stream / process).
+model TokenReservation {
+  id              String             @id @default(uuid())
+  organizationId  String
+  chatbotId       String
+  usageCounterId  String
+  day             DateTime           @db.Date
+  conversationId  String
+  estimatedTokens Int
+  actualTokens    Int?
+  status          ReservationStatus  @default(RESERVED)
+  createdAt       DateTime           @default(now())
+  settledAt       DateTime?
+
+  @@index([status, createdAt])
+  @@map("token_reservations")
+}
+
+/// Append-only ledger for analytics and cost; quota enforcement uses the counters above.
+model AiUsage {
+  id                  String    @id @default(uuid())
+  organizationId      String
+  chatbotId           String?
+  conversationId      String?
+  messageId           String?
+  customerId          String?
+  documentId          String? /// for EMBEDDING_INGEST
+  usageType           UsageType
+  model               String
+  inputTokens         Int
+  outputTokens        Int
+  totalTokens         Int
+  estimatedCostMicros BigInt /// micro-USD, from DEFAULTS.pricing
+  createdAt           DateTime  @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, usageType, createdAt])
+  @@map("ai_usage")
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  actorId        String?
+  action         String /// e.g. member.role_changed, ownership.transferred, conversation.reassigned
+  entityType     String
+  entityId       String
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@map("audit_logs")
+}

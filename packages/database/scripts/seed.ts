@@ -1,0 +1,53 @@
+// HelpFlow AI — seeds the `plans` table from DEFAULTS.plans (packages/config/defaults.ts).
+// Safe to re-run: upserts by unique `code`.
+import { join } from "node:path";
+import { config } from "dotenv";
+config({ path: join(__dirname, "..", "..", "..", ".env") });
+
+import { PrismaPg } from "@prisma/adapter-pg";
+import { DEFAULTS } from "@helpflow/config/defaults";
+import { PrismaClient, type PlanCode } from "../generated/prisma/client";
+
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
+
+async function main() {
+  const plans: Array<{ code: PlanCode; name: string; def: (typeof DEFAULTS)["plans"][keyof typeof DEFAULTS.plans] }> = [
+    { code: "FREE", name: "Free", def: DEFAULTS.plans.FREE },
+    { code: "PRO", name: "Pro", def: DEFAULTS.plans.PRO },
+    { code: "BUSINESS", name: "Business", def: DEFAULTS.plans.BUSINESS },
+  ];
+
+  for (const { code, name, def } of plans) {
+    await prisma.plan.upsert({
+      where: { code },
+      create: {
+        code,
+        name,
+        maxChatbots: def.maxChatbots,
+        maxAgents: def.maxAgents,
+        maxDocuments: def.maxDocuments,
+        monthlyAiTokens: def.monthlyAiTokens,
+        monthlyConversations: def.monthlyConversations,
+        selfServe: def.selfServe,
+      },
+      update: {
+        name,
+        maxChatbots: def.maxChatbots,
+        maxAgents: def.maxAgents,
+        maxDocuments: def.maxDocuments,
+        monthlyAiTokens: def.monthlyAiTokens,
+        monthlyConversations: def.monthlyConversations,
+        selfServe: def.selfServe,
+      },
+    });
+    console.log(`  ✓ plan ${code}`);
+  }
+}
+
+main()
+  .then(() => prisma.$disconnect())
+  .catch(async (err) => {
+    console.error(err);
+    await prisma.$disconnect();
+    process.exit(1);
+  });

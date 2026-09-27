@@ -1,0 +1,25 @@
+{
+  "name": "@helpflow/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "lint": "echo 'linted from repo root: pnpm run lint'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@helpflow/config": "workspace:*",
+    "@helpflow/database": "workspace:*",
+    "@helpflow/types": "workspace:*",
+    "bullmq": "^5.34.0",
+    "ioredis": "^5.4.1",
+    "pino": "^9.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

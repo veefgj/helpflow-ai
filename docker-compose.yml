@@ -1,0 +1,71 @@
+name: helpflow
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: helpflow
+      POSTGRES_PASSWORD: helpflow
+      POSTGRES_DB: helpflow
+    ports:
+      # Host port 5433 (not 5432): this machine already runs another Postgres natively on 5432/5433
+      # is guaranteed free for HelpFlow's own container, keeping this project fully isolated.
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helpflow -d helpflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ADR-003 calls for MinIO locally, but MinIO Inc. gated their public images behind auth in 2025
+  # (docker.io/minio/minio and quay.io/minio/minio both now require `docker login`). LocalStack's S3
+  # service is the freely-pullable stand-in: same S3 API surface via @aws-sdk/client-s3, same
+  # S3_FORCE_PATH_STYLE=true client config. Swap back to a MinIO image here if you have Docker Hub
+  # credentials for it — no application code changes needed either way.
+  storage:
+    image: localstack/localstack:3
+    restart: unless-stopped
+    environment:
+      SERVICES: s3
+      DEFAULT_REGION: us-east-1
+      PERSISTENCE: 1
+    ports:
+      - "9000:4566"
+    volumes:
+      - storage_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  storage-init:
+    image: localstack/localstack:3
+    depends_on:
+      storage:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      awslocal --endpoint-url http://storage:4566 s3 mb s3://helpflow-documents || true
+      "
+
+volumes:
+  pg_data:
+  redis_data:
+  storage_data:

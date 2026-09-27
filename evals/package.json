@@ -1,0 +1,19 @@
+{
+  "name": "@helpflow/evals",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "eval:rag": "tsx run-eval.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no lint configured for evals'"
+  },
+  "dependencies": {
+    "@helpflow/config": "workspace:*",
+    "@helpflow/database": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

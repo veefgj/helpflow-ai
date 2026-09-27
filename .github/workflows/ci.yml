@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  DATABASE_URL: postgresql://helpflow:helpflow@localhost:5432/helpflow?schema=public
+  DIRECT_DATABASE_URL: postgresql://helpflow:helpflow@localhost:5432/helpflow?schema=public
+  REDIS_URL: redis://localhost:6379
+  APP_URL: http://localhost:3000
+  API_URL: http://localhost:4000
+  WIDGET_ORIGIN: http://localhost:4100
+  JWT_ACCESS_SECRET: ci-access-secret-min-32-characters-long
+  VISITOR_TOKEN_SECRET: ci-visitor-secret-min-32-characters-long
+  REFRESH_COOKIE_SECRET: ci-refresh-secret-min-32-characters-long
+  OPENAI_API_KEY: sk-ci-placeholder
+  LLM_CHAT_MODEL: gpt-4o-mini
+  EMBEDDING_MODEL: text-embedding-3-small
+  EMBEDDING_DIM: "1536"
+  S3_ENDPOINT: http://localhost:9000
+  S3_REGION: auto
+  S3_BUCKET: helpflow-documents
+  S3_ACCESS_KEY_ID: helpflow
+  S3_SECRET_ACCESS_KEY: helpflow-secret
+  S3_FORCE_PATH_STYLE: "true"
+  STRIPE_SECRET_KEY: sk_test_ci-placeholder
+  STRIPE_WEBHOOK_SECRET: whsec_ci-placeholder
+  STRIPE_PRICE_ID_PRO: price_ci-placeholder
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: helpflow
+          POSTGRES_PASSWORD: helpflow
+          POSTGRES_DB: helpflow
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U helpflow -d helpflow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Enable pgvector extension
+        run: |
+          PGPASSWORD=helpflow psql -h localhost -U helpflow -d helpflow -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+      - name: Verify pgvector version (>= 0.8.0)
+        run: |
+          version=$(PGPASSWORD=helpflow psql -h localhost -U helpflow -d helpflow -tAc "SELECT extversion FROM pg_extension WHERE extname='vector'")
+          echo "pgvector version: $version"
+          python3 -c "
+          import sys
+          major, minor = [int(x) for x in '$version'.split('.')[:2]]
+          sys.exit(0 if (major, minor) >= (0, 8) else 1)
+          "
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Generate Prisma client
+        run: pnpm run db:generate
+
+      - name: Apply migrations
+        run: pnpm run db:migrate:deploy
+
+      - name: Unit tests
+        run: pnpm run test:unit
+
+      - name: Integration tests
+        run: pnpm run test:integration
+
+      - name: Build
+        run: pnpm run build
