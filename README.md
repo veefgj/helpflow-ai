@@ -9,12 +9,11 @@ disagree, the contract file wins (see `docs/PROJECT_SPEC.md` §12).
 
 ## Status
 
-Phases 0–3 are in place: shared schema/contracts, a working auth + workspace + RBAC backend, a full
-RAG pipeline (ingestion → embeddings → pgvector retrieval → cited streamed answers), and the full
-T1–T9 realtime handoff state machine with an agent inbox — all verified end-to-end against real
-Postgres/Redis/S3-compatible storage, not just typechecked. Remaining product features (billing,
-quota enforcement, deploy) are built out phase by phase per the build plan in
-`docs/PROJECT_SPEC.md` §13.
+All 5 phases are in place: shared schema/contracts, a working auth + workspace + RBAC backend, a
+full RAG pipeline (ingestion → embeddings → pgvector retrieval → cited streamed answers), the full
+T1–T9 realtime handoff state machine with an agent inbox, and quota/billing/delivery — all verified
+end-to-end against real Postgres/Redis/S3-compatible storage (and, for the widget, a real browser),
+not just typechecked.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -22,7 +21,7 @@ quota enforcement, deploy) are built out phase by phase per the build plan in
 | 1. Core SaaS | Auth + refresh rotation, workspaces, membership, invitations, RBAC, tenant isolation | ✅ |
 | 2. Knowledge + AI | Ingestion, embeddings, pgvector RAG, citations, widget, eval set | ✅ |
 | 3. Realtime support | Full T1–T9 handoff state machine, timers, agent inbox | ✅ |
-| 4. Commercial + delivery | Quota reservation, plans, Stripe, E2E, deploy | ⏳ |
+| 4. Commercial + delivery | Quota reservation, plan limits, Stripe billing, Docker, CI, E2E | ✅ |
 
 **Phase 1 highlights:** email/password auth (argon2id), rotating refresh cookie with reuse-detection
 (a stolen/replayed token burns the whole token family), workspace CRUD with soft delete, copy-link
@@ -59,6 +58,38 @@ assigned to them. Since the timers fire in `apps/worker` — a separate process 
 server of its own — `@socket.io/redis-adapter` (API) and `@socket.io/redis-emitter` (worker) share
 Redis-backed rooms so a worker-triggered transition still reaches connected clients live.
 
+**Phase 4 highlights:** atomic token-reservation quota (Section 8) — a raw SQL `UPDATE ... WHERE
+used+reserved+estimate <= limit RETURNING` reserves against both the org's monthly counter and the
+chatbot's daily counter in one transaction before any LLM call, reconciles to the provider-reported
+usage on success, releases on failure, and a maintenance sweep releases anything still `RESERVED`
+past 10 minutes (a crashed stream can't permanently shrink an org's quota); `GET
+/api/orgs/:orgId/usage` reports the current period's used/reserved/limit, conversations, estimated
+cost and a per-chatbot daily breakdown. Plan resource limits (chatbots/documents/agents) gate
+creation with `402 PLAN_LIMIT_EXCEEDED`; a downgrade never deletes anything — it disables the
+newest resources beyond the new limit (`disabledReason=PLAN_LIMIT`, oldest kept active), an upgrade
+re-enables the oldest disabled ones first, and `POST /plan-resources/activate` lets the Owner pick a
+different active set. Stripe billing (Checkout for self-serve PRO upgrade, Billing Portal for
+cancel/payment method, a convergent, idempotent webhook that re-fetches the subscription from the
+Stripe API rather than trusting the event payload, `lastStripeEventAt`-ordered against out-of-order
+delivery). A production Docker image (ADR-002): esbuild bundles apps/api and apps/worker together
+with every `@helpflow/*` workspace package they import into one `dist/main.js` each (those packages
+ship as raw `.ts` with no build step of their own), one shared image serves both services
+(`SERVICE=api` or `SERVICE=worker`) — built and smoke-tested against real Postgres/Redis/LocalStack
+in both modes, not just typechecked. CI now also seeds the plans, runs a LocalStack service (the
+worker's document-processing tests need real S3), and builds that Docker image on every push. A
+Playwright E2E test drives a real Chromium browser through the widget's actual React UI (the one
+piece of frontend code in this project with real UI to test) for the RAG golden path.
+
+**Known gaps, stated plainly:** `apps/web` (the dashboard) has no built UI yet — chatbot management,
+the agent inbox, and billing pages all exist as API/Socket.IO surface only, with no frontend. Stripe
+Checkout/Portal session creation and live webhook signature verification aren't covered by an
+automated test — that requires the project owner's own Stripe test-mode account and CLI; the parts
+of the webhook handler this project *can* verify without one (convergent subscription upsert,
+stale-event ordering, downgrade-triggered resource reconciliation, idempotency) are tested directly
+in `apps/api/test/billing.integration.spec.ts`. Real cloud deployment (Vercel/Railway/Neon per
+ADR-002) is not something an agent can carry out — it needs the project owner's own accounts and
+credentials.
+
 ## Architecture
 
 Modular monolith + worker (`docs/PROJECT_SPEC.md` §3):
@@ -75,7 +106,10 @@ packages/ai         LLM/embedding provider adapter (+ fake stub), chunker, citat
 packages/storage    S3-compatible object storage client (R2 in prod, LocalStack locally)
 packages/ui         Shared React components
 evals/              RAG gold set, seed corpus, and eval runner
+e2e/                Playwright browser E2E (widget RAG golden path)
 docs/adr/           Architecture decision records
+Dockerfile          Shared production image for apps/api and apps/worker (ADR-002)
+scripts/            Build-only tooling (esbuild bundling for the Docker image)
 ```
 
 ## Getting started
@@ -107,6 +141,15 @@ pnpm run typecheck
 pnpm run test:unit
 pnpm run test:integration   # requires Postgres + Redis + object storage running
 pnpm run eval:rag           # seeds a small KB and reports Hit@5/citations/faithfulness/refusal rate
+pnpm run e2e                # Playwright; starts apps/api + apps/widget itself, needs Docker Compose running
+```
+
+To build and smoke-test the production image locally:
+
+```bash
+docker build -t helpflow .
+docker run --network helpflow_default -e SERVICE=api  ... helpflow   # HTTP + Socket.IO on $PORT
+docker run --network helpflow_default -e SERVICE=worker ... helpflow  # BullMQ consumers, no HTTP
 ```
 
 `eval:rag` runs against whichever `AI_PROVIDER` is configured — meaningful for Hit@5 and
