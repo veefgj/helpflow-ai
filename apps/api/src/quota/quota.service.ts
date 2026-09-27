@@ -147,4 +147,86 @@ export class QuotaService {
       throw new HelpFlowApiException(ApiErrorCode.PLAN_LIMIT_EXCEEDED, `This plan allows at most ${limit} ${resource}`, { limit, resource });
     }
   }
+
+  /** Section 8 "Downgrade policy": called after any plan change (up or down). Never deletes
+   * anything — only flips disabledReason between null and PLAN_LIMIT, and only the minimum delta
+   * needed to fit the new limit. USER-disabled rows and the Owner's own membership are never
+   * touched. Idempotent: calling it again with no plan change is a no-op. */
+  async reconcilePlanLimits(organizationId: string): Promise<void> {
+    const limits = await this.getPlanLimits(organizationId);
+    await this.reconcileOneResource(organizationId, "chatbots", limits.maxChatbots);
+    await this.reconcileOneResource(organizationId, "documents", limits.maxDocuments);
+    await this.reconcileOneResource(organizationId, "agents", limits.maxAgents);
+  }
+
+  private async reconcileOneResource(organizationId: string, resource: "chatbots" | "documents" | "agents", limit: number | null): Promise<void> {
+    const rows = await resourceRows(organizationId, resource);
+    const { activate, deactivate } = reconcileRows(rows, limit);
+    await Promise.all([activateResourceRows(resource, activate), deactivateResourceRows(resource, deactivate)]);
+  }
+
+  /** POST /api/orgs/:orgId/plan-resources/activate — Owner picks which specific resources stay
+   * active after a downgrade, instead of the default oldest-first selection. */
+  async activatePlanResources(organizationId: string, resource: "chatbots" | "documents" | "agents", ids: string[]): Promise<void> {
+    const limits = await this.getPlanLimits(organizationId);
+    const limit = resource === "chatbots" ? limits.maxChatbots : resource === "documents" ? limits.maxDocuments : limits.maxAgents;
+    if (limit !== null && ids.length > limit) {
+      throw new HelpFlowApiException(ApiErrorCode.PLAN_LIMIT_EXCEEDED, `This plan allows at most ${limit} ${resource}`, { limit, resource });
+    }
+
+    // Never touch USER-disabled rows, and (for memberships) never touch the OWNER row.
+    const eligible = await resourceRows(organizationId, resource);
+    const eligibleIds = new Set(eligible.map((r) => r.id));
+    const toActivate = ids.filter((id) => eligibleIds.has(id));
+    const toDeactivate = [...eligibleIds].filter((id) => !toActivate.includes(id));
+
+    await Promise.all([activateResourceRows(resource, toActivate), deactivateResourceRows(resource, toDeactivate)]);
+  }
+}
+
+interface ResourceRow {
+  id: string;
+  createdAt: Date;
+  disabledReason: "USER" | "PLAN_LIMIT" | null;
+}
+
+/** Every row of a resource type that isn't USER-disabled and isn't the org's Owner membership —
+ * the only rows reconciliation or the activate endpoint is ever allowed to touch. */
+async function resourceRows(organizationId: string, resource: "chatbots" | "documents" | "agents"): Promise<ResourceRow[]> {
+  const where = { organizationId, OR: [{ disabledReason: null }, { disabledReason: "PLAN_LIMIT" as const }] };
+  if (resource === "chatbots") return prisma.chatbot.findMany({ where, select: { id: true, createdAt: true, disabledReason: true } });
+  if (resource === "documents") return prisma.document.findMany({ where: { ...where, deletedAt: null }, select: { id: true, createdAt: true, disabledReason: true } });
+  return prisma.membership.findMany({ where: { ...where, role: { not: "OWNER" } }, select: { id: true, createdAt: true, disabledReason: true } });
+}
+
+async function activateResourceRows(resource: "chatbots" | "documents" | "agents", ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  if (resource === "chatbots") await prisma.chatbot.updateMany({ where: { id: { in: ids } }, data: { disabledReason: null } });
+  else if (resource === "documents") await prisma.document.updateMany({ where: { id: { in: ids } }, data: { disabledReason: null } });
+  else await prisma.membership.updateMany({ where: { id: { in: ids } }, data: { disabledReason: null } });
+}
+
+async function deactivateResourceRows(resource: "chatbots" | "documents" | "agents", ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  if (resource === "chatbots") await prisma.chatbot.updateMany({ where: { id: { in: ids } }, data: { disabledReason: "PLAN_LIMIT" } });
+  else if (resource === "documents") await prisma.document.updateMany({ where: { id: { in: ids } }, data: { disabledReason: "PLAN_LIMIT" } });
+  else await prisma.membership.updateMany({ where: { id: { in: ids } }, data: { disabledReason: "PLAN_LIMIT" } });
+}
+
+/** The reconciliation itself is resource-agnostic once we have the plain id/createdAt/disabledReason
+ * rows: disable the newest active rows beyond the limit (downgrade), or re-enable the oldest
+ * PLAN_LIMIT rows up to the new room (upgrade) — never both in the same pass. */
+function reconcileRows(rows: ResourceRow[], limit: number | null): { activate: string[]; deactivate: string[] } {
+  const active = rows.filter((r) => r.disabledReason === null).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  const planLimited = rows.filter((r) => r.disabledReason === "PLAN_LIMIT").sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  if (limit !== null && active.length > limit) {
+    const excess = active.slice(limit).map((r) => r.id); // newest beyond the limit
+    return { activate: [], deactivate: excess };
+  }
+  if (limit === null || active.length < limit) {
+    const room = limit === null ? planLimited.length : limit - active.length;
+    return { activate: planLimited.slice(0, room).map((r) => r.id), deactivate: [] };
+  }
+  return { activate: [], deactivate: [] };
 }
