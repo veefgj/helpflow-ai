@@ -4,7 +4,7 @@
 // separate from token reservation — they gate creation, not generation.
 import { Injectable } from "@nestjs/common";
 import { prisma, reserveTokens, reconcileReservation, releaseReservation, type ReserveTokensResult } from "@helpflow/database";
-import { anchoredMonthlyPeriod } from "@helpflow/config";
+import { anchoredMonthlyPeriod, DEFAULTS } from "@helpflow/config";
 import { ApiErrorCode, HelpFlowApiException } from "@helpflow/types";
 
 export interface PlanLimits {
@@ -82,6 +82,52 @@ export class QuotaService {
         limit: monthlyConversations,
       });
     }
+  }
+
+  /** GET /api/orgs/:orgId/usage — current period used/reserved/limit, conversations, estimated
+   * cost, and a per-chatbot daily token breakdown (Section 8 + Appendix C). */
+  async getUsageSummary(organizationId: string) {
+    const [limits, period] = await Promise.all([this.getPlanLimits(organizationId), this.getCurrentPeriod(organizationId)]);
+
+    const counter = await prisma.usageCounter.findUnique({
+      where: { organizationId_periodStart: { organizationId, periodStart: period.periodStart } },
+    });
+    const costRow = await prisma.aiUsage.aggregate({
+      where: { organizationId, createdAt: { gte: period.periodStart, lt: period.periodEnd } },
+      _sum: { estimatedCostMicros: true },
+    });
+
+    const today = new Date();
+    const day = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+    const chatbots = await prisma.chatbot.findMany({ where: { organizationId, disabledReason: null }, select: { id: true, name: true, dailyTokenCap: true } });
+    const dailyRows = await prisma.chatbotDailyUsage.findMany({ where: { organizationId, day, chatbotId: { in: chatbots.map((c) => c.id) } } });
+    const dailyByChatbot = new Map(dailyRows.map((r) => [r.chatbotId, r]));
+
+    return {
+      period: { start: period.periodStart, end: period.periodEnd },
+      aiTokens: {
+        // Cast BigInt -> Number: JSON.stringify can't serialize BigInt, and token counts stay
+        // far under Number.MAX_SAFE_INTEGER at this app's scale.
+        used: Number(counter?.aiTokensUsed ?? 0n),
+        reserved: Number(counter?.aiTokensReserved ?? 0n),
+        limit: limits.monthlyAiTokens,
+      },
+      conversations: {
+        used: counter?.conversationsCount ?? 0,
+        limit: limits.monthlyConversations,
+      },
+      estimatedCostMicros: Number(costRow._sum.estimatedCostMicros ?? 0n),
+      chatbotsDaily: chatbots.map((chatbot) => {
+        const row = dailyByChatbot.get(chatbot.id);
+        return {
+          chatbotId: chatbot.id,
+          name: chatbot.name,
+          used: row?.aiTokensUsed ?? 0,
+          reserved: row?.aiTokensReserved ?? 0,
+          cap: chatbot.dailyTokenCap ?? DEFAULTS.quota.dailyTokenCapPerChatbot,
+        };
+      }),
+    };
   }
 
   /** Chatbot/document/agent creation over the plan limit (Section 8 "Over the limit"). */
