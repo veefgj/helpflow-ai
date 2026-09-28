@@ -26,15 +26,17 @@ export class ConversationsService {
   ) {}
 
   async list(organizationId: string, filters: { status?: string; assignedToMe?: string }) {
-    return prisma.conversation.findMany({
+    const rows = await prisma.conversation.findMany({
       where: {
         organizationId,
         ...(filters.status ? { status: filters.status as Conversation["status"] } : {}),
         ...(filters.assignedToMe ? { assignedAgentId: filters.assignedToMe } : {}),
       },
+      include: { customer: { select: { name: true, email: true } } },
       orderBy: { lastMessageAt: "desc" },
       take: 100,
     });
+    return rows.map((r) => ({ ...r, customerName: r.customer.name, customerEmail: r.customer.email, customer: undefined }));
   }
 
   async get(organizationId: string, conversationId: string) {
