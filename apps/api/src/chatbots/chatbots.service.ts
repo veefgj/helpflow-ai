@@ -66,6 +66,16 @@ export class ChatbotsService {
     await prisma.chatbotKnowledgeBase.deleteMany({ where: { chatbotId, knowledgeBaseId, organizationId } });
   }
 
+  async listKnowledgeBases(organizationId: string, chatbotId: string) {
+    await this.requireChatbot(organizationId, chatbotId);
+    const links = await prisma.chatbotKnowledgeBase.findMany({
+      where: { chatbotId, organizationId },
+      include: { knowledgeBase: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return links.map((l) => l.knowledgeBase);
+  }
+
   private async requireChatbot(organizationId: string, chatbotId: string) {
     const chatbot = await prisma.chatbot.findUnique({ where: { id: chatbotId } });
     if (!chatbot || chatbot.organizationId !== organizationId) {

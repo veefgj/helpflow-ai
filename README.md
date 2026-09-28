@@ -129,7 +129,7 @@ pnpm run dev                  # starts web, widget, api and worker together (Tur
 For real grounded answers (and a real `pnpm eval:rag` report), set `AI_PROVIDER=openai` and a real
 `OPENAI_API_KEY` in `.env`.
 
-- Dashboard: http://localhost:3000
+- Dashboard: http://localhost:3010 (not 3000 — see the comment in `.env.example`)
 - API: http://localhost:4000 (health: `/health`, readiness: `/ready`)
 - Widget: http://localhost:4100
 

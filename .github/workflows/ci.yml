@@ -9,7 +9,7 @@ env:
   DATABASE_URL: postgresql://helpflow:helpflow@localhost:5432/helpflow?schema=public
   DIRECT_DATABASE_URL: postgresql://helpflow:helpflow@localhost:5432/helpflow?schema=public
   REDIS_URL: redis://localhost:6379
-  APP_URL: http://localhost:3000
+  APP_URL: http://localhost:3010
   API_URL: http://localhost:4000
   WIDGET_ORIGIN: http://localhost:4100
   JWT_ACCESS_SECRET: ci-access-secret-min-32-characters-long

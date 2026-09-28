@@ -50,6 +50,11 @@ export class ChatbotsController {
     return this.chatbots.embedSnippet(orgId, chatbotId);
   }
 
+  @Get(":chatbotId/knowledge-bases")
+  async listKnowledgeBases(@Param("orgId") orgId: string, @Param("chatbotId") chatbotId: string) {
+    return this.chatbots.listKnowledgeBases(orgId, chatbotId);
+  }
+
   @UseGuards(RolesGuard)
   @Roles("OWNER", "ADMIN")
   @HttpCode(HttpStatus.NO_CONTENT)
