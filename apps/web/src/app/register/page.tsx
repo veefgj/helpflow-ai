@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useRegister } from "@/hooks/use-auth";
+import { useAuthStore } from "@/lib/auth-store";
 import { ApiRequestError } from "@/lib/api-client";
 
 export default function RegisterPage() {
@@ -17,6 +18,14 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const hasHydrated = useAuthStore((s) => s.hasHydrated);
+
+  // Already signed in -> skip the form; "/" routes to the right org (or /orgs/new).
+  useEffect(() => {
+    if (hasHydrated && accessToken) router.replace("/");
+  }, [hasHydrated, accessToken, router]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
