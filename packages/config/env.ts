@@ -21,6 +21,11 @@ const EnvSchema = z.object({
   REFRESH_COOKIE_SECRET: z.string().min(32),
 
   OPENAI_API_KEY: z.string().min(1),
+  /** Leave unset to call api.openai.com directly. Set to point the OpenAI SDK at an
+   * OpenAI-compatible third-party relay instead (e.g. https://api.vilao.ai/v1), using the same
+   * OPENAI_API_KEY/LLM_CHAT_MODEL/EMBEDDING_MODEL — no separate provider implementation needed
+   * since the wire format is identical. */
+  OPENAI_BASE_URL: z.string().url().optional(),
   /** "fake" runs the deterministic in-process stub instead of calling OpenAI — no key needed
    * (Section 10 "E2E ... with a stubbed LLM provider (deterministic stream)"). */
   AI_PROVIDER: z.enum(["openai", "fake"]).default("openai"),

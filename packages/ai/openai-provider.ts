@@ -4,7 +4,8 @@ import { countTokens } from "./tokenizer";
 import type { ChatCompletionResult, ChatStreamParams, EmbeddingOutput, EmbeddingProvider, LlmProvider } from "./provider";
 
 function client(): OpenAI {
-  return new OpenAI({ apiKey: loadEnv().OPENAI_API_KEY });
+  const env = loadEnv();
+  return new OpenAI({ apiKey: env.OPENAI_API_KEY, baseURL: env.OPENAI_BASE_URL });
 }
 
 export class OpenAiEmbeddingProvider implements EmbeddingProvider {
