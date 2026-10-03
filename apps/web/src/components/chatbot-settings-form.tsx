@@ -37,9 +37,14 @@ export function ChatbotSettingsForm({ orgId, chatbot }: { orgId: string; chatbot
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const name = form.name.trim();
+    if (!name) {
+      toast.error("Name is required");
+      return;
+    }
     updateChatbot.mutate(
       {
-        name: form.name,
+        name,
         description: form.description,
         welcomeMessage: form.welcomeMessage,
         systemPrompt: form.systemPrompt,
@@ -67,7 +72,7 @@ export function ChatbotSettingsForm({ orgId, chatbot }: { orgId: string; chatbot
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
-              <Input id="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <Input id="name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="description">Description</Label>
