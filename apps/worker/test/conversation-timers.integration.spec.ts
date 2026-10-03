@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { Job } from "bullmq";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@helpflow/database";
+import { t } from "@helpflow/types";
 import { handleAgentGrace, handleHandoffTimeout } from "../src/queues/conversation-timers.worker";
 
 const suffix = randomUUID().slice(0, 8);
@@ -18,6 +19,7 @@ async function createConversation(overrides: {
   chatbotUnavailablePolicy?: "RESUME_AI" | "COLLECT_EMAIL";
   status: "AI_ACTIVE" | "WAITING_AGENT" | "AGENT_ACTIVE";
   assignedAgentId?: string | null;
+  language?: "vi" | "en";
 }) {
   const chatbot = await prisma.chatbot.create({
     data: { organizationId, name: "Bot", allowedDomains: [], unavailablePolicy: overrides.chatbotUnavailablePolicy ?? "RESUME_AI" },
@@ -32,6 +34,7 @@ async function createConversation(overrides: {
       assignedAgentId: overrides.assignedAgentId ?? null,
       assignedAt: overrides.assignedAgentId ? new Date() : null,
       handoffRequestedAt: overrides.status !== "AI_ACTIVE" ? new Date() : null,
+      language: overrides.language ?? null,
     },
   });
 }
@@ -45,7 +48,7 @@ describe("conversation timers (Section 7 T4/T5/T6)", () => {
   });
 
   it("T4: RESUME_AI policy returns an unaccepted WAITING_AGENT conversation to AI_ACTIVE", async () => {
-    const conversation = await createConversation({ status: "WAITING_AGENT", chatbotUnavailablePolicy: "RESUME_AI" });
+    const conversation = await createConversation({ status: "WAITING_AGENT", chatbotUnavailablePolicy: "RESUME_AI", language: "en" });
     await handleHandoffTimeout(fakeJob(conversation.id));
 
     const updated = await prisma.conversation.findUniqueOrThrow({ where: { id: conversation.id } });
@@ -53,7 +56,7 @@ describe("conversation timers (Section 7 T4/T5/T6)", () => {
     expect(updated.handoffRequestedAt).toBeNull();
 
     const systemMessage = await prisma.message.findFirst({ where: { conversationId: conversation.id, senderType: "SYSTEM" } });
-    expect(systemMessage?.content).toMatch(/AI assistant will continue/i);
+    expect(systemMessage?.content).toBe(t("en", "timeoutResumeAi")); // session language
   });
 
   it("T5: COLLECT_EMAIL policy closes an unaccepted WAITING_AGENT conversation as AGENT_UNAVAILABLE", async () => {
@@ -82,7 +85,8 @@ describe("conversation timers (Section 7 T4/T5/T6)", () => {
     expect(updated.assignedAgentId).toBeNull();
 
     const systemMessage = await prisma.message.findFirst({ where: { conversationId: conversation.id, senderType: "SYSTEM" } });
-    expect(systemMessage?.content).toMatch(/agent disconnected/i);
+    // language NULL (pre-session-language row) → the chatbot's defaultLanguage, "vi" by default
+    expect(systemMessage?.content).toBe(t("vi", "agentDisconnected"));
   });
 
   it("agent-grace is a no-op (stale timer) when the conversation was already released or closed", async () => {

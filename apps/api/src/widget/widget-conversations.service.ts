@@ -1,8 +1,8 @@
-// Section 7 T2 (customer-initiated handoff) and the post-T5 contact form.
+// Section 7 T2 (customer-initiated handoff), T10 (customer ends the conversation) and the post-T5 contact form.
 import { Inject, Injectable } from "@nestjs/common";
-import { prisma, conditionalTransition, insertMessageSerialized, type Conversation } from "@helpflow/database";
+import { prisma, conditionalTransition, insertMessageSerialized, resolveConversationLanguage, type Conversation } from "@helpflow/database";
 import { DEFAULTS } from "@helpflow/config";
-import { ApiErrorCode, HelpFlowApiException } from "@helpflow/types";
+import { ApiErrorCode, HelpFlowApiException, t } from "@helpflow/types";
 import { toConversationDto } from "../common/mappers/conversation.mapper";
 import { toMessageDto } from "../common/mappers/message.mapper";
 import { RealtimeEmitterService } from "../common/realtime/realtime-emitter.service";
@@ -45,7 +45,41 @@ export class WidgetConversationsService {
     const chatbot = await prisma.chatbot.findUniqueOrThrow({ where: { id: visitor.chatbotId } });
     await this.timers.scheduleHandoffTimeout(conversationId, chatbot.handoffTimeoutSec ?? DEFAULTS.handoff.waitingTimeoutSec);
 
-    await this.emitTransition(updated, "The customer asked to speak with a human. Waiting for an agent.");
+    await this.emitTransition(updated, t(await resolveConversationLanguage(updated), "handoffRequested"));
+    return updated;
+  }
+
+  /**
+   * T10: the customer ends the conversation from the widget, from any open state. One conditional
+   * UPDATE guarded by the status just read — if it moved meanwhile, 0 rows → 409 with the current state.
+   */
+  async closeByCustomer(visitor: VisitorTokenPayload, conversationId: string): Promise<Conversation> {
+    const current = await this.requireOwnConversation(visitor, conversationId);
+    if (current.status === "CLOSED") {
+      throw new HelpFlowApiException(ApiErrorCode.INVALID_STATE_TRANSITION, "Conversation is already closed", {
+        currentState: toConversationDto(current),
+      });
+    }
+
+    const updated = await conditionalTransition({
+      conversationId,
+      organizationId: visitor.organizationId,
+      from: current.status,
+      set: { status: "CLOSED", assignedAgentId: null, assignedAt: null, closedAt: new Date(), closeReason: "CLOSED_BY_CUSTOMER" },
+    });
+    if (!updated) {
+      const latest = await prisma.conversation.findUnique({ where: { id: conversationId } });
+      throw new HelpFlowApiException(ApiErrorCode.INVALID_STATE_TRANSITION, "Conversation state changed before it could be closed", {
+        currentState: latest ? toConversationDto(latest) : null,
+      });
+    }
+
+    this.aiReply.abort(conversationId); // no-op unless an answer was streaming; it persists as INTERRUPTED
+    // Stale timers would be no-ops anyway (they re-check state); removing them just keeps the queue clean.
+    await this.timers.cancelHandoffTimeout(conversationId);
+    await this.timers.cancelAgentGrace(conversationId);
+
+    await this.emitTransition(updated, t(await resolveConversationLanguage(updated), "closedByCustomer"));
     return updated;
   }
 

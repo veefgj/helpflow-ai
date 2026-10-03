@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api-client";
+import type { Language } from "@helpflow/types";
 import type { Chatbot, UnavailablePolicy } from "@/lib/types";
 
 export function useChatbots(orgId: string) {
@@ -37,6 +38,7 @@ export interface UpdateChatbotInput {
   dailyTokenCap?: number;
   handoffTimeoutSec?: number;
   unavailablePolicy?: UnavailablePolicy;
+  defaultLanguage?: Language;
 }
 
 export function useUpdateChatbot(orgId: string, chatbotId: string) {

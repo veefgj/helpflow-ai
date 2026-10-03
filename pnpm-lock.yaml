@@ -235,6 +235,9 @@ importers:
 
   apps/widget:
     dependencies:
+      '@helpflow/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@helpflow/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -327,6 +330,9 @@ importers:
       '@helpflow/database':
         specifier: workspace:*
         version: link:../packages/database
+      '@helpflow/types':
+        specifier: workspace:*
+        version: link:../packages/types
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -343,6 +349,9 @@ importers:
       '@helpflow/config':
         specifier: workspace:*
         version: link:../config
+      '@helpflow/types':
+        specifier: workspace:*
+        version: link:../types
       js-tiktoken:
         specifier: ^1.0.15
         version: 1.0.21

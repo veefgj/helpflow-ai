@@ -54,6 +54,7 @@ export class WidgetSessionService {
       config: {
         name: chatbot.name,
         welcomeMessage: chatbot.welcomeMessage,
+        defaultLanguage: chatbot.defaultLanguage,
       },
       conversation: conversation ? toConversationDto(conversation) : null,
       messages: messages.reverse().map(toMessageDto),

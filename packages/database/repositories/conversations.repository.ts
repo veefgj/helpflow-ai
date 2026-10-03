@@ -2,7 +2,7 @@
 // `WHERE id = ? AND organizationId = ? AND status = <from>`. Zero updated rows means the state
 // changed first — callers turn that into 409 (CONVERSATION_ALREADY_ASSIGNED / INVALID_STATE_TRANSITION).
 import { prisma } from "../client";
-import type { CloseReason, Conversation, ConversationStatus } from "../generated/prisma/client";
+import type { CloseReason, Conversation, ConversationStatus, Language } from "../generated/prisma/client";
 
 export interface TransitionFields {
   status: ConversationStatus;
@@ -29,4 +29,12 @@ export async function conditionalTransition(params: {
 
   if (result.count === 0) return null;
   return prisma.conversation.findUniqueOrThrow({ where: { id: params.conversationId } });
+}
+
+/** Section 5 "Language": the language for server-authored messages in this conversation. NULL only on
+ * rows created before session language existed → the chatbot's default. Shared by the API and worker. */
+export async function resolveConversationLanguage(conversation: Pick<Conversation, "language" | "chatbotId">): Promise<Language> {
+  if (conversation.language) return conversation.language;
+  const chatbot = await prisma.chatbot.findUniqueOrThrow({ where: { id: conversation.chatbotId }, select: { defaultLanguage: true } });
+  return chatbot.defaultLanguage;
 }

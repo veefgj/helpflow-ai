@@ -54,6 +54,13 @@ enum CloseReason {
   CLOSED_BY_AGENT
   AGENT_UNAVAILABLE
   INACTIVITY
+  CLOSED_BY_CUSTOMER /// T10: the customer ended the conversation from the widget
+}
+
+/// Session language of a conversation / a chatbot's widget default (Section 5 "Language").
+enum Language {
+  vi
+  en
 }
 
 enum UnavailablePolicy {
@@ -263,6 +270,7 @@ model Chatbot {
   dailyTokenCap     Int? /// NULL = DEFAULTS.quota.dailyTokenCapPerChatbot
   handoffTimeoutSec Int? /// NULL = DEFAULTS.handoff.waitingTimeoutSec
   unavailablePolicy UnavailablePolicy @default(RESUME_AI)
+  defaultLanguage   Language          @default(vi) /// used when the first customer message's language is ambiguous
   disabledReason    DisabledReason?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
@@ -386,6 +394,9 @@ model Conversation {
   chatbotId          String
   customerId         String
   status             ConversationStatus @default(AI_ACTIVE)
+  /// Session language, set at T1 and changed only on an explicit customer request. NULL = legacy row
+  /// created before this column existed → fall back to chatbot.defaultLanguage.
+  language           Language?
   assignedAgentId    String? /// users.id; set only in AGENT_ACTIVE
   handoffRequestedAt DateTime?
   assignedAt         DateTime?

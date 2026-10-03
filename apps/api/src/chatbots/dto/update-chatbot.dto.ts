@@ -1,6 +1,6 @@
 import { Transform } from "class-transformer";
 import { IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
-import type { UnavailablePolicy } from "@helpflow/database";
+import type { Language, UnavailablePolicy } from "@helpflow/database";
 
 export class UpdateChatbotDto {
   @IsOptional()
@@ -48,4 +48,8 @@ export class UpdateChatbotDto {
   @IsOptional()
   @IsIn(["RESUME_AI", "COLLECT_EMAIL"])
   unavailablePolicy?: UnavailablePolicy;
+
+  @IsOptional()
+  @IsIn(["vi", "en"])
+  defaultLanguage?: Language;
 }

@@ -38,7 +38,7 @@ Realtime contract (Socket.IO namespaces, events, payloads, ack shape) lives in
 | Method | Path | Who | Notes |
 |---|---|---|---|
 | GET / POST | /api/orgs/:orgId/chatbots | Member · Owner/Admin | List · create (+ default KB); PLAN_LIMIT_EXCEEDED |
-| GET / PATCH / DELETE | /api/orgs/:orgId/chatbots/:id | Member · Owner/Admin | Includes allowedDomains, caps, unavailablePolicy |
+| GET / PATCH / DELETE | /api/orgs/:orgId/chatbots/:id | Member · Owner/Admin | Includes allowedDomains, caps, unavailablePolicy, defaultLanguage (vi \| en) |
 | GET | /api/orgs/:orgId/chatbots/:id/embed | Owner/Admin | Embed snippet |
 | PUT / DELETE | /api/orgs/:orgId/chatbots/:id/knowledge-bases/:kbId | Owner/Admin | Attach · detach |
 | GET / POST | /api/orgs/:orgId/knowledge-bases | Owner/Admin | List · create |
@@ -78,9 +78,10 @@ Realtime contract (Socket.IO namespaces, events, payloads, ack shape) lives in
 |---|---|---|---|
 | GET | /c/:chatbotId | Public | iframe HTML with per-chatbot CSP frame-ancestors |
 | GET | /api/widget/chatbots/:chatbotId/embed-policy | Public | {allowedDomains} — read by apps/widget's middleware to set the CSP header |
-| POST | /api/widget/session | Public (rate limited) | {chatbotId, visitorToken?} → {visitorToken, config, conversation?, messages} |
+| POST | /api/widget/session | Public (rate limited) | {chatbotId, visitorToken?} → {visitorToken, config: {name, welcomeMessage, defaultLanguage}, conversation? (incl. language), messages} |
 | GET | /api/widget/conversations/current/messages | Visitor token | ?afterSeq=&limit= |
 | POST | /api/widget/conversations/:id/handoff | Visitor token | T2 |
+| POST | /api/widget/conversations/:id/close | Visitor token | T10 → ConversationDto (CLOSED, closeReason CLOSED_BY_CUSTOMER); 409 INVALID_STATE_TRANSITION if already closed |
 | POST | /api/widget/conversations/:id/contact | Visitor token | {email, name?} after T5 |
 
 ## Operations
