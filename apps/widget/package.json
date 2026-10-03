@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@helpflow/config": "workspace:*",
     "@helpflow/types": "workspace:*",
     "next": "^15.1.3",
     "react": "^19.0.0",

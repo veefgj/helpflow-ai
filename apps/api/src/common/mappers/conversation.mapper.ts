@@ -11,6 +11,7 @@ export function toConversationDto(conversation: Conversation): ConversationDto {
     handoffRequestedAt: conversation.handoffRequestedAt?.toISOString() ?? null,
     closedAt: conversation.closedAt?.toISOString() ?? null,
     closeReason: conversation.closeReason,
+    language: conversation.language,
     lastMessageAt: conversation.lastMessageAt.toISOString(),
   };
 }

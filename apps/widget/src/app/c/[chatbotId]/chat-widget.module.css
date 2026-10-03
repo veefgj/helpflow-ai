@@ -1,0 +1,824 @@
+/* Widget look & motion. Every color goes through the --hf-* tokens below (one place to brand a
+   tenant). Motion only animates transform/opacity, and is switched off under prefers-reduced-motion. */
+
+.root {
+  --hf-primary: #2563eb;
+  --hf-primary-hover: #1d4ed8;
+  --hf-on-primary: #ffffff;
+  --hf-surface: #ffffff;
+  --hf-surface-muted: #f3f4f6;
+  --hf-text: #111827;
+  --hf-text-muted: #6b7280;
+  --hf-border: #e5e7eb;
+  --hf-danger: #dc2626;
+  --hf-agent: #047857; /* "a human is answering" accent */
+  --hf-info-bg: #eff6ff;
+  --hf-info-text: #1e40af;
+  --hf-radius: 16px;
+  --hf-shadow: 0 12px 40px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.08);
+  --hf-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  position: fixed;
+  inset: 0;
+  pointer-events: none; /* only the launcher and panel take clicks — the rest of the iframe is see-through */
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--hf-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ───────────── Floating launcher ───────────── */
+
+.launcherGroup {
+  pointer-events: auto;
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* Who you'd be chatting with — shown on hover / keyboard focus while the chat is closed. */
+.launcherLabel {
+  max-width: 240px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--hf-surface);
+  color: var(--hf-text);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.14);
+  cursor: pointer;
+  animation: labelIn 180ms var(--hf-ease) both;
+}
+.launcherLabelTitle {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.launcherLabelHint {
+  font-size: 12px;
+  color: var(--hf-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.launcher {
+  flex: none;
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--hf-primary);
+  color: var(--hf-on-primary);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.35);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: transform 160ms var(--hf-ease), box-shadow 160ms var(--hf-ease), background-color 160ms;
+  animation: launcherIn 260ms var(--hf-ease) both;
+}
+.launcher:hover {
+  transform: scale(1.06);
+  background: var(--hf-primary-hover);
+}
+.launcher:active {
+  transform: scale(0.94);
+}
+.launcher:focus-visible,
+.iconButton:focus-visible,
+.sendButton:focus-visible,
+.retryButton:focus-visible,
+.chipButton:focus-visible {
+  outline: 2px solid var(--hf-primary);
+  outline-offset: 2px;
+}
+.launcherIcon {
+  grid-area: 1 / 1;
+  display: grid;
+  transition: transform 220ms var(--hf-ease), opacity 160ms;
+}
+.launcherIconHidden {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.6);
+}
+
+/* ───────────── Panel ───────────── */
+
+.panel {
+  pointer-events: auto;
+  position: absolute;
+  right: 16px;
+  bottom: 88px;
+  width: 380px;
+  height: min(600px, calc(100% - 104px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--hf-surface);
+  border-radius: var(--hf-radius);
+  box-shadow: var(--hf-shadow);
+  transform-origin: bottom right;
+  animation: panelIn 220ms var(--hf-ease) both;
+  z-index: 1;
+}
+.panelClosing {
+  animation: panelOut 160ms ease-in both;
+}
+
+/* Phones (the loader makes the iframe full-screen there): the panel takes the whole screen. Set from JS,
+   not a media query — inside the 440px desktop iframe a width query can't tell desktop from phone. */
+.panelCompact {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 16px;
+  border-bottom: 1px solid var(--hf-border);
+  background: var(--hf-surface);
+}
+.avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--hf-primary);
+  color: var(--hf-on-primary);
+  font-weight: 600;
+}
+.headerText {
+  flex: 1;
+  min-width: 0;
+}
+.title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.skeleton.titleSkeleton {
+  /* matches one line of .title so the header doesn't change height when the name arrives */
+  width: 96px;
+  height: 14px;
+  margin: 3px 0 3px;
+  border-radius: 6px;
+}
+.subtitle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--hf-text-muted);
+}
+.subtitleAgent {
+  color: var(--hf-agent);
+  font-weight: 500;
+}
+.chipButton {
+  flex: none;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--hf-border);
+  background: var(--hf-surface);
+  color: var(--hf-text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 140ms var(--hf-ease), border-color 140ms, background-color 140ms;
+}
+.chipButton:hover:not(:disabled) {
+  border-color: var(--hf-primary);
+  color: var(--hf-primary);
+}
+.chipButton:active:not(:disabled) {
+  transform: scale(0.95);
+}
+.chipButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.iconButton {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--hf-text-muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 140ms var(--hf-ease), background-color 140ms, color 140ms;
+}
+.iconButton:hover {
+  background: var(--hf-surface-muted);
+  color: var(--hf-text);
+}
+.minimizeButton:hover svg {
+  transform: translateY(2px);
+}
+.iconButton svg {
+  transition: transform 200ms var(--hf-ease);
+}
+.iconButton:active {
+  transform: scale(0.9);
+}
+
+/* ⋯ menu in the header */
+.menuAnchor {
+  position: relative;
+  flex: none;
+}
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 3;
+  min-width: 210px;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--hf-border);
+  background: var(--hf-surface);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  transform-origin: top right;
+  animation: menuIn 140ms var(--hf-ease) both;
+}
+.menuItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--hf-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms;
+}
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--hf-surface-muted);
+  outline: none;
+}
+.menuItemDanger {
+  color: var(--hf-danger);
+}
+
+/* End-conversation confirmation, inside the panel */
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.35);
+  animation: fadeIn 160ms ease both;
+}
+.dialog {
+  width: min(300px, 100%);
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--hf-surface);
+  box-shadow: var(--hf-shadow);
+  animation: dialogIn 180ms var(--hf-ease) both;
+}
+.dialogTitle {
+  font-weight: 600;
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+.dialogBody {
+  color: var(--hf-text-muted);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.secondaryButton,
+.dangerButton {
+  padding: 7px 14px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 140ms var(--hf-ease), background-color 140ms;
+}
+.secondaryButton {
+  border: 1px solid var(--hf-border);
+  background: var(--hf-surface);
+  color: var(--hf-text);
+}
+.secondaryButton:hover:not(:disabled) {
+  background: var(--hf-surface-muted);
+}
+.dangerButton {
+  border: 0;
+  background: var(--hf-danger);
+  color: #ffffff;
+}
+.dangerButton:hover:not(:disabled) {
+  background: #b91c1c;
+}
+.secondaryButton:active:not(:disabled),
+.dangerButton:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.secondaryButton:disabled,
+.dangerButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.secondaryButton:focus-visible,
+.dangerButton:focus-visible,
+.moreButton:focus-visible,
+.minimizeButton:focus-visible {
+  outline: 2px solid var(--hf-primary);
+  outline-offset: 2px;
+}
+.inlineButton.startNewButton {
+  align-self: center;
+}
+
+.statusBar {
+  flex: none;
+  padding: 6px 16px;
+  font-size: 12px;
+  background: var(--hf-info-bg);
+  color: var(--hf-info-text);
+  border-bottom: 1px solid #dbeafe;
+  animation: fadeIn 200ms ease both;
+}
+.statusBarError {
+  background: #fef2f2;
+  color: var(--hf-danger);
+  border-bottom-color: #fee2e2;
+}
+
+/* ───────────── Messages ───────────── */
+
+.messagesWrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.messages {
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box; /* padding inside the scroll box — otherwise it overflows under the composer */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-gutter: stable;
+}
+
+.bubble {
+  max-width: 85%;
+  padding: 9px 13px;
+  border-radius: 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bubbleAi {
+  align-self: flex-start;
+  background: var(--hf-surface-muted);
+  color: var(--hf-text);
+  border-bottom-left-radius: 6px;
+}
+.bubbleCustomer {
+  align-self: flex-end;
+  background: var(--hf-primary);
+  color: var(--hf-on-primary);
+  border-bottom-right-radius: 6px;
+}
+.bubblePending {
+  opacity: 0.7;
+}
+.bubbleFailed {
+  opacity: 0.6;
+}
+.enter {
+  animation: messageIn 240ms var(--hf-ease) both;
+}
+.system {
+  align-self: center;
+  max-width: 90%;
+  font-size: 12px;
+  color: var(--hf-text-muted);
+  text-align: center;
+  padding: 2px 8px;
+}
+/* An AI / agent reply: optional "who" label above the bubble. */
+.turn {
+  align-self: flex-start;
+  max-width: 85%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.turn > .bubble {
+  max-width: 100%;
+}
+.senderLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--hf-text-muted);
+}
+.senderLabelAgent {
+  color: var(--hf-agent);
+}
+.citations {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.7;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* The finished answer taking the typing dots' place: fade only, nothing moves. */
+.reveal {
+  animation: fadeIn 200ms ease both;
+}
+
+.failedRow {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--hf-danger);
+  margin-top: -4px;
+}
+.inlineError {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: #fef2f2;
+  color: var(--hf-danger);
+  font-size: 13px;
+}
+.retryButton {
+  flex: none;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 140ms var(--hf-ease), background-color 140ms;
+}
+.retryButton:hover {
+  background: rgba(220, 38, 38, 0.08);
+}
+.retryButton:active {
+  transform: scale(0.94);
+}
+.inlineButton {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--hf-primary);
+  background: var(--hf-surface);
+  color: var(--hf-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 140ms var(--hf-ease), background-color 140ms;
+}
+.inlineButton:hover:not(:disabled) {
+  background: var(--hf-info-bg);
+}
+.inlineButton:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.contactCard {
+  background: #f9fafb;
+  border: 1px solid var(--hf-border);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.contactRow {
+  display: flex;
+  gap: 8px;
+}
+
+.jumpButton {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  border: 1px solid var(--hf-border);
+  background: var(--hf-surface);
+  color: var(--hf-text);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+  cursor: pointer;
+  animation: jumpIn 180ms var(--hf-ease) both;
+}
+
+/* Typing indicator: three dots, CSS only. */
+.typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 1.45em; /* same as one line of text, so the bubble doesn't jump when the first token lands */
+}
+.typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hf-text-muted);
+  animation: typingDot 1.2s ease-in-out infinite;
+}
+.typing span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* Skeleton while the session / history loads. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--hf-surface-muted);
+  height: 36px;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+.loadError {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--hf-text-muted);
+  text-align: center;
+  padding: 24px;
+}
+
+/* ───────────── Composer ───────────── */
+
+.composer {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--hf-border);
+  background: var(--hf-surface);
+}
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--hf-border);
+  font: inherit;
+  color: var(--hf-text);
+  background: var(--hf-surface);
+  transition: border-color 140ms, box-shadow 140ms;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--hf-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+.sendButton {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--hf-primary);
+  color: var(--hf-on-primary);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 140ms var(--hf-ease), background-color 140ms, opacity 140ms;
+}
+.sendButton:hover:not(:disabled) {
+  background: var(--hf-primary-hover);
+}
+.sendButton:hover:not(:disabled) svg {
+  transform: translateX(2px);
+}
+.sendButton svg {
+  transition: transform 160ms var(--hf-ease);
+}
+.sendButton:active:not(:disabled) {
+  transform: scale(0.9);
+}
+.sendButton:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.sendLabel {
+  /* text label for buttons whose visible content is an icon */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ───────────── Keyframes ───────────── */
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes panelOut {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+@keyframes launcherIn {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes labelIn {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes menuIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes dialogIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes messageIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes jumpIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+}
+@keyframes typingDot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes dotPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launcher,
+  .launcherLabel,
+  .menu,
+  .overlay,
+  .dialog,
+  .panel,
+  .panelClosing,
+  .enter,
+  .statusBar,
+  .jumpButton,
+  .skeleton::after,
+  .reveal {
+    animation: none;
+  }
+  .launcher,
+  .launcherIcon,
+  .iconButton,
+  .iconButton svg,
+  .chipButton,
+  .sendButton,
+  .sendButton svg,
+  .retryButton,
+  .inlineButton,
+  .secondaryButton,
+  .dangerButton {
+    transition: none;
+  }
+  .launcher:hover,
+  .launcher:active,
+  .sendButton:active:not(:disabled),
+  .minimizeButton:hover svg,
+  .sendButton:hover:not(:disabled) svg {
+    transform: none;
+  }
+  /* keep a non-moving cue that the assistant is working */
+  .typing span {
+    animation: dotPulse 1.6s ease-in-out infinite;
+  }
+}

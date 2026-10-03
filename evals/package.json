@@ -11,7 +11,8 @@
   "dependencies": {
     "@helpflow/ai": "workspace:*",
     "@helpflow/config": "workspace:*",
-    "@helpflow/database": "workspace:*"
+    "@helpflow/database": "workspace:*",
+    "@helpflow/types": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

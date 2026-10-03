@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@helpflow/config": "workspace:*",
+    "@helpflow/types": "workspace:*",
     "js-tiktoken": "^1.0.15",
     "openai": "^4.77.0"
   },

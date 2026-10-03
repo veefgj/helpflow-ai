@@ -23,6 +23,8 @@ import { useDeleteChatbot, useUpdateChatbot } from "@/hooks/use-chatbots";
 import type { Chatbot } from "@/lib/types";
 import { ApiRequestError } from "@/lib/api-client";
 
+const LANGUAGE_LABELS = { vi: "Tiếng Việt", en: "English" };
+
 export function ChatbotSettingsForm({ orgId, chatbot }: { orgId: string; chatbot: Chatbot }) {
   const updateChatbot = useUpdateChatbot(orgId, chatbot.id);
   const deleteChatbot = useDeleteChatbot(orgId);
@@ -33,6 +35,7 @@ export function ChatbotSettingsForm({ orgId, chatbot }: { orgId: string; chatbot
     systemPrompt: chatbot.systemPrompt ?? "",
     allowedDomains: chatbot.allowedDomains.join(", "),
     unavailablePolicy: chatbot.unavailablePolicy,
+    defaultLanguage: chatbot.defaultLanguage,
   });
 
   function handleSubmit(e: React.FormEvent) {
@@ -53,6 +56,7 @@ export function ChatbotSettingsForm({ orgId, chatbot }: { orgId: string; chatbot
           .map((d) => d.trim())
           .filter(Boolean),
         unavailablePolicy: form.unavailablePolicy,
+        defaultLanguage: form.defaultLanguage,
       },
       {
         onSuccess: () => toast.success("Settings saved"),
@@ -109,6 +113,21 @@ export function ChatbotSettingsForm({ orgId, chatbot }: { orgId: string; chatbot
                 onChange={(e) => setForm({ ...form, allowedDomains: e.target.value })}
               />
               <p className="text-xs text-muted-foreground">Comma-separated. Empty means the widget can&apos;t be embedded anywhere.</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Default language</Label>
+              <Select items={LANGUAGE_LABELS} value={form.defaultLanguage} onValueChange={(v) => setForm({ ...form, defaultLanguage: v as typeof form.defaultLanguage })}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="vi">Tiếng Việt</SelectItem>
+                  <SelectItem value="en">English</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Used when a customer&apos;s first message doesn&apos;t make the language clear. Customers can switch by asking.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>When no agent is available</Label>
