@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "CloseReason" ADD VALUE 'CLOSED_BY_CUSTOMER';

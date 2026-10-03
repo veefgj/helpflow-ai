@@ -9,6 +9,8 @@ export * from "./chunker";
 export * from "./citations";
 export * from "./retrieval";
 export * from "./prompt-builder";
+export * from "./language";
+export * from "./intent";
 
 let embeddingProvider: EmbeddingProvider | null = null;
 let llmProvider: LlmProvider | null = null;

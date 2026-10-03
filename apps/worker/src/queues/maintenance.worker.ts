@@ -4,7 +4,8 @@
 // Phase 4 adds a third sweep here (releasing stale token reservations).
 import { Queue, Worker } from "bullmq";
 import { DEFAULTS } from "@helpflow/config";
-import { prisma, conditionalTransition, insertMessageSerialized, releaseStaleReservations } from "@helpflow/database";
+import { prisma, conditionalTransition, insertMessageSerialized, releaseStaleReservations, resolveConversationLanguage } from "@helpflow/database";
+import { t } from "@helpflow/types";
 import { deleteObject } from "@helpflow/storage";
 import { createRedisConnection } from "../redis";
 import { emitConversationUpdated, emitInboxUpdated, emitMessageCreated } from "../realtime";
@@ -49,7 +50,7 @@ export async function closeInactiveAiConversations(): Promise<void> {
       organizationId: updated.organizationId,
       conversationId: updated.id,
       senderType: "SYSTEM",
-      content: "This conversation was closed after 24 hours of inactivity.",
+      content: t(await resolveConversationLanguage(updated), "inactivityClosed"),
     });
     emitMessageCreated(updated.id, toMessageDto(message));
     const dto = toConversationDto(updated);

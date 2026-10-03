@@ -22,3 +22,22 @@
 {"question": "What programming languages does your API support?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
 {"question": "Can I transfer my account to another person?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
 {"question": "What is your policy on carbon offsets for shipping?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
+{"question": "refund window?", "expectedDocumentKey": "refund-policy", "expectedPage": null, "expectedFacts": ["30 days for a full refund"], "answerable": true}
+{"question": "express shipping price?", "expectedDocumentKey": "shipping-policy", "expectedPage": null, "expectedFacts": ["express shipping costs an additional $15"], "answerable": true}
+{"question": "delete my account", "expectedDocumentKey": "account-deletion", "expectedPage": null, "expectedFacts": ["delete from the Account Settings page"], "answerable": true}
+{"question": "gift cards?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
+{"question": "hoàn tiền trong bao lâu?", "expectedDocumentKey": "refund-policy", "expectedPage": null, "expectedFacts": ["30 days for a full refund"], "answerable": true}
+{"question": "ship nhanh giá bao nhiêu?", "expectedDocumentKey": "shipping-policy", "expectedPage": null, "expectedFacts": ["express shipping costs an additional $15"], "answerable": true}
+{"question": "xóa tài khoản thế nào?", "expectedDocumentKey": "account-deletion", "expectedPage": null, "expectedFacts": ["delete from the Account Settings page"], "answerable": true}
+{"question": "giao hàng quốc tế mất mấy ngày?", "expectedDocumentKey": "shipping-policy", "expectedPage": null, "expectedFacts": ["10 to 20 business days"], "answerable": true}
+{"question": "có bán thẻ quà tặng không?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
+{"question": "có trả góp không?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
+{"question": "xin chào, hoàn tiền trong bao lâu?", "expectedDocumentKey": "refund-policy", "expectedPage": null, "expectedFacts": ["30 days for a full refund"], "answerable": true}
+{"question": "hi, do you sell gift cards?", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false}
+{"question": "xin chào", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false, "social": true}
+{"question": "hi", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false, "social": true}
+{"question": "cảm ơn bạn nhé", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false, "social": true}
+{"question": "thanks a lot!", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false, "social": true}
+{"question": "tạm biệt", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false, "social": true}
+{"question": "trả lời bằng tiếng anh", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false, "social": true, "language": "en"}
+{"question": "please reply in Vietnamese", "expectedDocumentKey": null, "expectedPage": null, "expectedFacts": [], "answerable": false, "social": true, "language": "vi"}

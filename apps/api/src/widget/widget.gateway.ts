@@ -14,14 +14,16 @@ import {
 import type { Server, Socket } from "socket.io";
 import { prisma, insertMessageSerialized } from "@helpflow/database";
 import { loadEnv, DEFAULTS } from "@helpflow/config";
+import { detectHandoffIntent, detectLanguage, detectLanguageSwitch } from "@helpflow/ai";
 import { ApiErrorCode, HelpFlowApiException } from "@helpflow/types";
-import type { AckResult, WidgetSendMessagePayload, WidgetSendMessageResult } from "@helpflow/types";
+import type { AckResult, Language, WidgetSendMessagePayload, WidgetSendMessageResult } from "@helpflow/types";
 import { toConversationDto } from "../common/mappers/conversation.mapper";
 import { toMessageDto } from "../common/mappers/message.mapper";
 import { conversationRoom, RealtimeEmitterService } from "../common/realtime/realtime-emitter.service";
 import { AiGenLockService } from "../ai-reply/ai-gen-lock.service";
 import { AiReplyService } from "../ai-reply/ai-reply.service";
 import { QuotaService } from "../quota/quota.service";
+import { WidgetConversationsService } from "./widget-conversations.service";
 import { verifyVisitorToken, type VisitorTokenPayload } from "./visitor-token";
 
 @WebSocketGateway({
@@ -39,6 +41,7 @@ export class WidgetGateway implements OnGatewayConnection, OnGatewayInit {
     @Inject(AiReplyService) private readonly aiReply: AiReplyService,
     @Inject(RealtimeEmitterService) private readonly realtime: RealtimeEmitterService,
     @Inject(QuotaService) private readonly quota: QuotaService,
+    @Inject(WidgetConversationsService) private readonly widgetConversations: WidgetConversationsService,
   ) {}
 
   afterInit(server: Server): void {
@@ -88,6 +91,13 @@ export class WidgetGateway implements OnGatewayConnection, OnGatewayInit {
       };
     }
 
+    // Section 5 "Language": the session language is fixed at T1 from the first message (or the
+    // chatbot default when ambiguous) and changes only on an explicit request — persisted here, before
+    // the AI runs, never inferred from history.
+    const { defaultLanguage } = await prisma.chatbot.findUniqueOrThrow({ where: { id: visitor.chatbotId }, select: { defaultLanguage: true } });
+    const requestedLanguage = detectLanguageSwitch(payload.content)?.language ?? null;
+    const resolveLanguage = (current: Language | null): Language => requestedLanguage ?? current ?? detectLanguage(payload.content) ?? defaultLanguage;
+
     // T1: lazy conversation creation on the first customer message.
     let conversation = await prisma.conversation.findFirst({
       where: { chatbotId: visitor.chatbotId, customerId: visitor.customerId, status: { not: "CLOSED" } },
@@ -103,7 +113,7 @@ export class WidgetGateway implements OnGatewayConnection, OnGatewayInit {
         throw err;
       }
       conversation = await prisma.conversation.create({
-        data: { organizationId: visitor.organizationId, chatbotId: visitor.chatbotId, customerId: visitor.customerId },
+        data: { organizationId: visitor.organizationId, chatbotId: visitor.chatbotId, customerId: visitor.customerId, language: resolveLanguage(null) },
       });
     }
     if (isNewConversation) {
@@ -130,6 +140,31 @@ export class WidgetGateway implements OnGatewayConnection, OnGatewayInit {
 
     this.realtime.emitToConversation(conversation.id, "message:created", toMessageDto(message));
 
+    const language = resolveLanguage(conversation.language);
+    if (language !== conversation.language) {
+      conversation = await prisma.conversation.update({ where: { id: conversation.id }, data: { language } });
+      this.realtime.emitToConversation(conversation.id, "conversation:updated", toConversationDto(conversation));
+    }
+
+    // Section 7 T2 via chat: an explicit request for a human, or "yes" to the AI's handoff offer, runs
+    // the same transition as POST .../handoff instead of another AI reply.
+    if (conversation.status === "AI_ACTIVE") {
+      const lastAi = await prisma.message.findFirst({
+        where: { conversationId: conversation.id, senderType: "AI" },
+        orderBy: { seq: "desc" },
+        select: { insufficientKnowledge: true },
+      });
+      if (detectHandoffIntent(payload.content, lastAi?.insufficientKnowledge === true)) {
+        try {
+          conversation = await this.widgetConversations.requestHandoff(visitor, conversation.id);
+        } catch (err) {
+          if (!(err instanceof HelpFlowApiException)) throw err;
+          conversation = (await prisma.conversation.findUnique({ where: { id: conversation.id } })) ?? conversation; // lost a race — report current state
+        }
+        return { ok: true, data: { message: toMessageDto(message), conversation: toConversationDto(conversation) } };
+      }
+    }
+
     if (conversation.status === "AI_ACTIVE") {
       const conversationId = conversation.id;
       this.aiReply
@@ -138,6 +173,7 @@ export class WidgetGateway implements OnGatewayConnection, OnGatewayInit {
           chatbotId: visitor.chatbotId,
           conversationId,
           customerMessage: payload.content,
+          language,
           callbacks: {
             onStarted: (streamId) => this.realtime.emitToConversation(conversationId, "ai:started", { conversationId, streamId }),
             onChunk: (streamId, index, delta) => this.realtime.emitToConversation(conversationId, "ai:chunk", { conversationId, streamId, index, delta }),

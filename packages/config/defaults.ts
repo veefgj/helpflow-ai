@@ -35,7 +35,7 @@ export const DEFAULTS = {
     chunkOverlapTokens: 120,
     topK: 5,
     efSearch: 100,
-    maxCosineDistance: 0.6, // PROVISIONAL — calibrate with the eval set; chunks above it are dropped
+    maxCosineDistance: 0.7, // PROVISIONAL — calibrate with the eval set; chunks above it are dropped. Passing it is not proof the chunk answers the question — the model still checks.
     maxContextTokens: 4_000,
     maxAnswerTokens: 800, // also the output part of the quota reservation estimate
     historyMessages: 10, // prior turns sent to the model
