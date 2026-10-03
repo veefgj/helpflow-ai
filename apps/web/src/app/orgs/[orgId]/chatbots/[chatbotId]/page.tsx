@@ -37,7 +37,7 @@ export default function ChatbotDetailPage({ params }: { params: Promise<{ orgId:
         <TabsContent value="settings" className="animate-in fade-in duration-200">
           <ChatbotSettingsForm orgId={orgId} chatbot={chatbot} />
         </TabsContent>
-        <TabsContent value="knowledge" className="animate-in fade-in duration-200">
+        <TabsContent value="knowledge" keepMounted className="animate-in fade-in duration-200">
           <KnowledgeBasePanel orgId={orgId} chatbotId={chatbotId} />
         </TabsContent>
         <TabsContent value="embed" className="animate-in fade-in duration-200">
