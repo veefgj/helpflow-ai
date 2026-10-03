@@ -3,18 +3,19 @@
 // by the time it fires) is harmless — it simply updates zero rows and does nothing.
 import { Job, Worker } from "bullmq";
 import { DEFAULTS } from "@helpflow/config";
-import { prisma, conditionalTransition, insertMessageSerialized, type Conversation } from "@helpflow/database";
+import { prisma, conditionalTransition, insertMessageSerialized, resolveConversationLanguage, type Conversation } from "@helpflow/database";
+import { t, type I18nKey } from "@helpflow/types";
 import { createRedisConnection } from "../redis";
 import { emitConversationUpdated, emitInboxUpdated, emitMessageCreated } from "../realtime";
 import { toConversationDto, toMessageDto } from "../mappers";
 import { scheduleHandoffTimeout } from "./conversation-timers-queue";
 
-async function announceTransition(conversation: Conversation, text: string): Promise<void> {
+async function announceTransition(conversation: Conversation, systemMessage: I18nKey): Promise<void> {
   const message = await insertMessageSerialized({
     organizationId: conversation.organizationId,
     conversationId: conversation.id,
     senderType: "SYSTEM",
-    content: text,
+    content: t(await resolveConversationLanguage(conversation), systemMessage),
   });
   emitMessageCreated(conversation.id, toMessageDto(message));
   const dto = toConversationDto(conversation);
@@ -36,7 +37,7 @@ export async function handleHandoffTimeout(job: Job<{ conversationId: string }>)
       from: "WAITING_AGENT",
       set: { status: "AI_ACTIVE", handoffRequestedAt: null },
     });
-    if (updated) await announceTransition(updated, "No agent was available in time. The AI assistant will continue helping you.");
+    if (updated) await announceTransition(updated, "timeoutResumeAi");
   } else {
     // T5
     const updated = await conditionalTransition({
@@ -45,7 +46,7 @@ export async function handleHandoffTimeout(job: Job<{ conversationId: string }>)
       from: "WAITING_AGENT",
       set: { status: "CLOSED", closedAt: new Date(), closeReason: "AGENT_UNAVAILABLE" },
     });
-    if (updated) await announceTransition(updated, "No agent was available. Please leave your email and we'll follow up.");
+    if (updated) await announceTransition(updated, "timeoutCollectEmail");
   }
 }
 
@@ -63,7 +64,7 @@ export async function handleAgentGrace(job: Job<{ conversationId: string }>): Pr
   if (!updated) return;
 
   await scheduleHandoffTimeout(conversation.id, DEFAULTS.handoff.waitingTimeoutSec);
-  await announceTransition(updated, "The agent disconnected. Waiting for another agent.");
+  await announceTransition(updated, "agentDisconnected");
 }
 
 export function startConversationTimersWorker(): Worker {

@@ -5,11 +5,12 @@
 // Typing indicators and presence broadcasts are intentionally NOT part of the MVP.
 
 import type { ApiError } from "./api-errors";
+import type { Language } from "./i18n";
 
 // ─────────────────────────── Shared DTOs ───────────────────────────
 
 export type ConversationStatus = "AI_ACTIVE" | "WAITING_AGENT" | "AGENT_ACTIVE" | "CLOSED";
-export type CloseReason = "CLOSED_BY_AGENT" | "AGENT_UNAVAILABLE" | "INACTIVITY";
+export type CloseReason = "CLOSED_BY_AGENT" | "AGENT_UNAVAILABLE" | "INACTIVITY" | "CLOSED_BY_CUSTOMER";
 export type MessageSenderType = "CUSTOMER" | "AI" | "AGENT" | "SYSTEM";
 export type MessageStreamStatus = "COMPLETED" | "FAILED" | "INTERRUPTED";
 
@@ -44,6 +45,7 @@ export interface ConversationDto {
   handoffRequestedAt: string | null;
   closedAt: string | null;
   closeReason: CloseReason | null;
+  language: Language | null; // session language; null only on legacy rows (fall back to the chatbot default)
   lastMessageAt: string;
 }
 

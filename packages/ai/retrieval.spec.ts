@@ -8,7 +8,7 @@ describe("selectContext (Section 5 'Runtime retrieval')", () => {
   ]);
 
   it("returns insufficientKnowledge when every row is past the distance threshold", () => {
-    // 0.9 > DEFAULTS.rag.maxCosineDistance (0.6) so it must be dropped:
+    // 0.9 > DEFAULTS.rag.maxCosineDistance (0.7) so it must be dropped:
     const rows: RetrievedRow[] = [{ id: "c1", documentId: "doc-a", pageNumber: null, content: "x", distance: 0.9 }];
     const result = selectContext(rows, names);
     expect(result.insufficientKnowledge).toBe(true);

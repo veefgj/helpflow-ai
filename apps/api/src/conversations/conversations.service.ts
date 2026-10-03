@@ -7,12 +7,13 @@ import {
   conditionalTransition,
   insertMessageSerialized,
   listMessagesAfterSeq,
+  resolveConversationLanguage,
   type Conversation,
   type Membership,
   type Prisma,
 } from "@helpflow/database";
 import { DEFAULTS } from "@helpflow/config";
-import { ApiErrorCode, HelpFlowApiException } from "@helpflow/types";
+import { ApiErrorCode, HelpFlowApiException, t, type I18nKey } from "@helpflow/types";
 import { toConversationDto } from "../common/mappers/conversation.mapper";
 import { toMessageDto } from "../common/mappers/message.mapper";
 import { RealtimeEmitterService } from "../common/realtime/realtime-emitter.service";
@@ -67,7 +68,7 @@ export class ConversationsService {
     if (!updated) return this.conflict(organizationId, conversationId, ApiErrorCode.CONVERSATION_ALREADY_ASSIGNED);
 
     await this.timers.cancelHandoffTimeout(conversationId);
-    await this.transitionSideEffects(updated, "An agent has joined the conversation.");
+    await this.transitionSideEffects(updated, "agentJoined");
     return updated;
   }
 
@@ -84,7 +85,7 @@ export class ConversationsService {
       });
       if (!updated) return this.conflict(organizationId, conversationId, ApiErrorCode.CONVERSATION_ALREADY_ASSIGNED);
       await this.timers.cancelHandoffTimeout(conversationId);
-      await this.transitionSideEffects(updated, "An agent has taken over the conversation.");
+      await this.transitionSideEffects(updated, "agentTookOver");
       return updated;
     }
 
@@ -97,7 +98,7 @@ export class ConversationsService {
       });
       if (!updated) return this.conflict(organizationId, conversationId, ApiErrorCode.CONVERSATION_ALREADY_ASSIGNED);
       await this.writeAudit(organizationId, actorUserId, "conversation.takeover", conversationId);
-      await this.transitionSideEffects(updated, "An agent has taken over the conversation.");
+      await this.transitionSideEffects(updated, "agentTookOver");
       return updated;
     }
 
@@ -124,7 +125,7 @@ export class ConversationsService {
     if (!updated) return this.conflict(organizationId, conversationId, ApiErrorCode.INVALID_STATE_TRANSITION);
 
     await this.writeAudit(organizationId, actorUserId, "conversation.reassigned", conversationId, { targetAgentUserId });
-    await this.transitionSideEffects(updated, "The conversation was reassigned to another agent.");
+    await this.transitionSideEffects(updated, "reassigned");
     return updated;
   }
 
@@ -143,7 +144,7 @@ export class ConversationsService {
 
     await this.timers.cancelAgentGrace(conversationId);
     await this.timers.scheduleHandoffTimeout(conversationId, DEFAULTS.handoff.waitingTimeoutSec);
-    await this.transitionSideEffects(updated, "The agent released the conversation; waiting for another agent.");
+    await this.transitionSideEffects(updated, "released");
     return updated;
   }
 
@@ -161,7 +162,7 @@ export class ConversationsService {
     if (!updated) return this.conflict(organizationId, conversationId, ApiErrorCode.INVALID_STATE_TRANSITION);
 
     await this.timers.cancelAgentGrace(conversationId);
-    await this.transitionSideEffects(updated, "The agent closed the conversation.");
+    await this.transitionSideEffects(updated, "closedByAgent");
     return updated;
   }
 
@@ -193,12 +194,12 @@ export class ConversationsService {
   }
 
   /** Every successful transition inserts a SYSTEM message and emits conversation:updated + inbox:updated. */
-  private async transitionSideEffects(conversation: Conversation, systemMessageText: string): Promise<void> {
+  private async transitionSideEffects(conversation: Conversation, systemMessage: I18nKey): Promise<void> {
     const message = await insertMessageSerialized({
       organizationId: conversation.organizationId,
       conversationId: conversation.id,
       senderType: "SYSTEM",
-      content: systemMessageText,
+      content: t(await resolveConversationLanguage(conversation), systemMessage),
     });
     this.realtime.emitToConversation(conversation.id, "message:created", toMessageDto(message));
     const dto = toConversationDto(conversation);

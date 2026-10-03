@@ -9,13 +9,18 @@ import { prisma, retrieveChunks } from "@helpflow/database";
 import { DEFAULTS, loadEnv } from "@helpflow/config";
 import {
   buildChatMessages,
+  classifySocialIntent,
+  detectLanguage,
+  detectLanguageSwitch,
   getEmbeddingProvider,
   getLlmProvider,
   parseTrailer,
   selectContext,
   validateCitations,
+  type NumberedContext,
   type RetrievedRow,
 } from "@helpflow/ai";
+import type { Language } from "@helpflow/types";
 import { seedEvalCorpus, type EvalFixtures } from "./seed-eval-corpus";
 
 interface GoldQuestion {
@@ -24,6 +29,10 @@ interface GoldQuestion {
   expectedPage: number | null;
   expectedFacts: string[];
   answerable: boolean;
+  /** Pure small talk — must route to the social path (no retrieval, no citations). */
+  social?: boolean;
+  /** Expected reply language (session language); defaults to what the production gateway would pick. */
+  language?: Language;
 }
 
 interface QuestionResult {
@@ -35,6 +44,10 @@ interface QuestionResult {
   faithfulFacts: number | null;
   totalFacts: number;
   topDistance: number | null;
+  routedSocial: boolean;
+  grounded: boolean | null; // every claim supported by the supplied knowledge (LLM-judged); null = refused/social
+  languageCorrect: boolean | null;
+  citedSomething: boolean;
 }
 
 function loadGoldSet(): GoldQuestion[] {
@@ -46,17 +59,12 @@ function loadGoldSet(): GoldQuestion[] {
     .map((line) => JSON.parse(line) as GoldQuestion);
 }
 
-async function judgeFact(answer: string, fact: string): Promise<boolean> {
-  const provider = getLlmProvider();
+async function judgeYesNo(system: string, user: string): Promise<boolean> {
   let text = "";
-  const result = await provider.streamChatCompletion({
+  const result = await getLlmProvider().streamChatCompletion({
     messages: [
-      {
-        role: "system",
-        content:
-          "You are grading a customer support answer. Reply with exactly one word, YES or NO: does the ANSWER clearly state the FACT? Do not explain.",
-      },
-      { role: "user", content: `FACT: ${fact}\n\nANSWER: ${answer}` },
+      { role: "system", content: `${system} Reply with exactly one word, YES or NO. Do not explain.` },
+      { role: "user", content: user },
     ],
     maxTokens: 5,
     temperature: 0,
@@ -67,7 +75,65 @@ async function judgeFact(answer: string, fact: string): Promise<boolean> {
   return /yes/i.test(result.content || text);
 }
 
+/** Answer correctness: does the answer state the expected fact? */
+function judgeFact(answer: string, fact: string): Promise<boolean> {
+  return judgeYesNo("You are grading a customer support answer: does the ANSWER clearly state the FACT?", `FACT: ${fact}\n\nANSWER: ${answer}`);
+}
+
+/** Groundedness: is every business claim in the answer supported by the knowledge the model was given? */
+function judgeGrounded(answer: string, context: NumberedContext[]): Promise<boolean> {
+  return judgeYesNo(
+    "You are auditing a customer support answer for hallucination. Is EVERY factual claim in the ANSWER (about the company, products, prices, policies, times) explicitly supported by the KNOWLEDGE? Offers to connect a human agent and statements that information is unavailable count as supported.",
+    `KNOWLEDGE:\n${context.map((c) => `[${c.index}] ${c.content}`).join("\n\n")}\n\nANSWER: ${answer}`,
+  );
+}
+
+/** Vietnamese is detected reliably (diacritics); an English reply just must not be Vietnamese — short
+ * English answers often contain none of detectLanguage()'s English marker words. */
+function repliedIn(answer: string, language: Language): boolean {
+  const detected = detectLanguage(answer);
+  return language === "vi" ? detected === "vi" : detected !== "vi";
+}
+
+async function generate(messages: ReturnType<typeof buildChatMessages>): Promise<string> {
+  let fullText = "";
+  await getLlmProvider().streamChatCompletion({
+    messages,
+    maxTokens: 400,
+    temperature: 0,
+    onChunk: (delta) => {
+      fullText += delta;
+    },
+  });
+  return fullText;
+}
+
 async function evaluateQuestion(fixtures: EvalFixtures, q: GoldQuestion): Promise<QuestionResult> {
+  // Same routing as the production gateway + AiReplyService (Section 5 "Language" / "Conversational intents").
+  const language: Language = q.language ?? detectLanguageSwitch(q.question)?.language ?? detectLanguage(q.question) ?? "vi";
+  const socialIntent = classifySocialIntent(q.question);
+  const base = {
+    question: q,
+    totalFacts: q.expectedFacts.length,
+    routedSocial: socialIntent !== null,
+  };
+
+  if (socialIntent) {
+    const { answerText } = parseTrailer(await generate(buildChatMessages({ tenantSystemPrompt: null, context: [], history: [], customerMessage: q.question, language, socialIntent })));
+    return {
+      ...base,
+      hit5: null,
+      insufficientKnowledge: false,
+      correctRefusal: null,
+      citationCorrect: null,
+      faithfulFacts: null,
+      topDistance: null,
+      grounded: null,
+      languageCorrect: repliedIn(answerText, language),
+      citedSomething: false, // AiReplyService discards citations on the social path
+    };
+  }
+
   const [embedded] = await getEmbeddingProvider().embed([q.question]);
   const rows: RetrievedRow[] = embedded
     ? await retrieveChunks({
@@ -87,29 +153,23 @@ async function evaluateQuestion(fixtures: EvalFixtures, q: GoldQuestion): Promis
   const { insufficientKnowledge, context } = selectContext(rows, documentNameById);
 
   if (insufficientKnowledge) {
+    // Server-side localized fallback, no LLM call — language is correct by construction.
     return {
-      question: q,
+      ...base,
       hit5,
       insufficientKnowledge: true,
-      correctRefusal: q.answerable ? false : true,
+      correctRefusal: !q.answerable,
       citationCorrect: null,
       faithfulFacts: null,
-      totalFacts: q.expectedFacts.length,
       topDistance,
+      grounded: null,
+      languageCorrect: true,
+      citedSomething: false,
     };
   }
 
-  const messages = buildChatMessages({ tenantSystemPrompt: null, context, history: [], customerMessage: q.question });
-  let fullText = "";
-  await getLlmProvider().streamChatCompletion({
-    messages,
-    maxTokens: 400,
-    temperature: 0,
-    onChunk: (delta) => {
-      fullText += delta;
-    },
-  });
-  const { answerText, citations } = parseTrailer(fullText);
+  const fullText = await generate(buildChatMessages({ tenantSystemPrompt: null, context, history: [], customerMessage: q.question, language }));
+  const { answerText, citations, insufficientKnowledge: modelRefused } = parseTrailer(fullText);
   const validated = validateCitations(citations, context);
 
   const citationCorrect = q.answerable && expectedDocumentId ? validated.some((c) => c.documentId === expectedDocumentId) : null;
@@ -121,14 +181,17 @@ async function evaluateQuestion(fixtures: EvalFixtures, q: GoldQuestion): Promis
   }
 
   return {
-    question: q,
+    ...base,
     hit5,
-    insufficientKnowledge: false,
-    correctRefusal: q.answerable ? true : false, // answered when it should have refused, or vice versa
+    insufficientKnowledge: modelRefused,
+    // The model may refuse itself (trailer) even when a chunk passed the threshold.
+    correctRefusal: q.answerable ? !modelRefused : modelRefused,
     citationCorrect,
     faithfulFacts,
-    totalFacts: q.expectedFacts.length,
     topDistance,
+    grounded: await judgeGrounded(answerText, context),
+    languageCorrect: repliedIn(answerText, language),
+    citedSomething: validated.length > 0,
   };
 }
 
@@ -157,28 +220,40 @@ async function main() {
     results.push(await evaluateQuestion(fixtures, q));
   }
 
-  const answerable = results.filter((r) => r.question.answerable);
-  const unanswerable = results.filter((r) => !r.question.answerable);
-  const distances = results.map((r) => r.topDistance).filter((d): d is number => d !== null).sort((a, b) => a - b);
+  const business = results.filter((r) => !r.question.social);
+  const answerable = business.filter((r) => r.question.answerable);
+  const unanswerable = business.filter((r) => !r.question.answerable);
+  const social = results.filter((r) => r.question.social);
+  const distances = business.map((r) => r.topDistance).filter((d): d is number => d !== null).sort((a, b) => a - b);
 
   console.log("\n=== HelpFlow RAG eval report ===");
-  console.log(`Questions: ${results.length} (${answerable.length} answerable, ${unanswerable.length} unanswerable)`);
-  console.log(`Hit@5:                ${rate(answerable.map((r) => r.hit5 === true))}`);
-  console.log(`Citation correctness: ${rate(answerable.filter((r) => r.citationCorrect !== null).map((r) => r.citationCorrect === true))}`);
-  const faithfulnessRows = results.filter((r) => r.totalFacts > 0 && r.faithfulFacts !== null);
-  const totalFacts = faithfulnessRows.reduce((sum, r) => sum + r.totalFacts, 0);
+  console.log(`Questions: ${results.length} (${answerable.length} answerable, ${unanswerable.length} unanswerable, ${social.length} social)`);
+  console.log(`Hit@5:                 ${rate(answerable.map((r) => r.hit5 === true))}`);
+  console.log(`Citation correctness:  ${rate(answerable.filter((r) => r.citationCorrect !== null).map((r) => r.citationCorrect === true))}`);
+  const faithfulnessRows = business.filter((r) => r.totalFacts > 0 && r.faithfulFacts !== null);
+  const totalFacts = answerable.reduce((sum, r) => sum + r.totalFacts, 0);
   const totalFaithful = faithfulnessRows.reduce((sum, r) => sum + (r.faithfulFacts ?? 0), 0);
-  console.log(`Faithfulness:         ${totalFacts ? `${((totalFaithful / totalFacts) * 100).toFixed(1)}% (${totalFaithful}/${totalFacts} facts)` : "n/a"}`);
-  console.log(`Correct-refusal rate: ${rate(unanswerable.map((r) => r.correctRefusal === true))}`);
+  console.log(`Answer correctness:    ${totalFacts ? `${((totalFaithful / totalFacts) * 100).toFixed(1)}% (${totalFaithful}/${totalFacts} expected facts stated; refusals count as misses)` : "n/a"}`);
+  console.log(`Groundedness:          ${rate(business.filter((r) => r.grounded !== null).map((r) => r.grounded === true))} of generated answers`);
+  console.log(`Correct-refusal rate:  ${rate(unanswerable.map((r) => r.correctRefusal === true))}`);
+  console.log(`False-refusal rate:    ${rate(answerable.map((r) => r.insufficientKnowledge))} (lower is better)`);
+  console.log(`Social routing:        ${rate(results.map((r) => r.routedSocial === (r.question.social === true)))}`);
+  console.log(`Social never cites:    ${rate(social.map((r) => !r.citedSomething))}`);
+  console.log(`Session language kept: ${rate(results.filter((r) => r.languageCorrect !== null).map((r) => r.languageCorrect === true))}`);
   console.log(
     `Distance distribution (top hit per question): min=${distances[0]?.toFixed(3)} p50=${distances[Math.floor(distances.length / 2)]?.toFixed(3)} max=${distances[distances.length - 1]?.toFixed(3)} — current maxCosineDistance=${DEFAULTS.rag.maxCosineDistance}`,
   );
 
-  const falseRefusals = answerable.filter((r) => r.insufficientKnowledge);
-  if (falseRefusals.length > 0) {
-    console.log(`\n${falseRefusals.length} answerable question(s) were incorrectly refused (insufficientKnowledge):`);
-    for (const r of falseRefusals) console.log(`  - "${r.question.question}"`);
-  }
+  const report = (label: string, rows: QuestionResult[]) => {
+    if (rows.length === 0) return;
+    console.log(`\n${label}:`);
+    for (const r of rows) console.log(`  - "${r.question.question}"${r.topDistance !== null ? ` (top distance ${r.topDistance.toFixed(3)})` : ""}`);
+  };
+  report("Answerable but refused", answerable.filter((r) => r.insufficientKnowledge));
+  report("Unanswerable but answered", unanswerable.filter((r) => r.correctRefusal === false));
+  report("Not grounded", business.filter((r) => r.grounded === false));
+  report("Wrong reply language", results.filter((r) => r.languageCorrect === false));
+  report("Mis-routed (social vs RAG)", results.filter((r) => r.routedSocial !== (r.question.social === true)));
 
   await prisma.$disconnect();
 }

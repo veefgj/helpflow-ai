@@ -5,6 +5,7 @@ import { ApiErrorCode, HelpFlowApiException } from "@helpflow/types";
 import { Public } from "../common/decorators/public.decorator";
 import { RateLimit } from "../common/rate-limit/rate-limit.decorator";
 import { RateLimitGuard } from "../common/rate-limit/rate-limit.guard";
+import { toConversationDto } from "../common/mappers/conversation.mapper";
 import { toMessageDto } from "../common/mappers/message.mapper";
 import { WidgetSessionService } from "./widget-session.service";
 import { WidgetConversationsService } from "./widget-conversations.service";
@@ -64,6 +65,13 @@ export class WidgetController {
   @Post("conversations/:conversationId/handoff")
   async handoff(@CurrentVisitor() visitor: VisitorTokenPayload, @Param("conversationId") conversationId: string) {
     return this.conversations.requestHandoff(visitor, conversationId);
+  }
+
+  @UseGuards(VisitorAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @Post("conversations/:conversationId/close")
+  async close(@CurrentVisitor() visitor: VisitorTokenPayload, @Param("conversationId") conversationId: string) {
+    return toConversationDto(await this.conversations.closeByCustomer(visitor, conversationId));
   }
 
   @UseGuards(VisitorAuthGuard)

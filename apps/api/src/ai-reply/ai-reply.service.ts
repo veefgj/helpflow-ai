@@ -4,15 +4,22 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { prisma, insertMessageSerialized, type Message } from "@helpflow/database";
 import { DEFAULTS, resolve } from "@helpflow/config";
-import { buildChatMessages, countTokens, getLlmProvider, parseTrailer, validateCitations, type ChatMessage, type HistoryMessage } from "@helpflow/ai";
-import { ApiErrorCode } from "@helpflow/types";
+import {
+  buildChatMessages,
+  classifySocialIntent,
+  countTokens,
+  getLlmProvider,
+  parseTrailer,
+  validateCitations,
+  type ChatMessage,
+  type HistoryMessage,
+  type NumberedContext,
+} from "@helpflow/ai";
+import { ApiErrorCode, t, type Language } from "@helpflow/types";
 import { AiGenLockService } from "./ai-gen-lock.service";
 import { AiGenerationRegistry } from "./ai-generation-registry.service";
 import { RetrievalService } from "./retrieval.service";
 import { QuotaService } from "../quota/quota.service";
-
-const INSUFFICIENT_KNOWLEDGE_FALLBACK =
-  "I don't have information about that in what I've been given. Would you like to talk to a human?";
 
 export interface AiReplyCallbacks {
   onStarted: (streamId: string) => void;
@@ -45,6 +52,8 @@ export class AiReplyService {
     chatbotId: string;
     conversationId: string;
     customerMessage: string;
+    /** Session language, already resolved and persisted by the caller (Section 5 "Language"). */
+    language: Language;
     callbacks: AiReplyCallbacks;
   }): Promise<void> {
     const locked = await this.lock.acquire(params.conversationId);
@@ -68,27 +77,37 @@ export class AiReplyService {
     chatbotId: string;
     conversationId: string;
     customerMessage: string;
+    language: Language;
     callbacks: AiReplyCallbacks;
   }): Promise<void> {
     const chatbot = await prisma.chatbot.findUniqueOrThrow({ where: { id: params.chatbotId } });
-    const { insufficientKnowledge, context } = await this.retrieval.retrieve(params.organizationId, params.chatbotId, params.customerMessage);
+
+    // Section 5 "Conversational intents": only a message that is small talk and nothing else skips
+    // retrieval; the model then gets no knowledge and its citations are discarded below.
+    const socialIntent = classifySocialIntent(params.customerMessage);
+    let context: NumberedContext[] = [];
+    let insufficientKnowledge = false;
+    if (!socialIntent) {
+      ({ insufficientKnowledge, context } = await this.retrieval.retrieve(params.organizationId, params.chatbotId, params.customerMessage));
+    }
 
     const streamId = randomUUID();
     params.callbacks.onStarted(streamId);
 
     if (insufficientKnowledge) {
+      const fallback = t(params.language, "insufficientKnowledgeFallback");
       const message = await insertMessageSerialized({
         id: streamId,
         organizationId: params.organizationId,
         conversationId: params.conversationId,
         senderType: "AI",
-        content: INSUFFICIENT_KNOWLEDGE_FALLBACK,
+        content: fallback,
         streamStatus: "COMPLETED",
         citations: [],
         insufficientKnowledge: true,
         retrieval: { skipped: "no chunk within maxCosineDistance" },
       });
-      params.callbacks.onChunk(streamId, 0, INSUFFICIENT_KNOWLEDGE_FALLBACK);
+      params.callbacks.onChunk(streamId, 0, fallback);
       params.callbacks.onCompleted(message);
       return;
     }
@@ -99,6 +118,8 @@ export class AiReplyService {
       context,
       history,
       customerMessage: params.customerMessage,
+      language: params.language,
+      socialIntent,
     });
 
     // Section 8 "Token reservation": estimate = counted prompt tokens + maxAnswerTokens, reserved
@@ -135,7 +156,7 @@ export class AiReplyService {
     }
 
     const { answerText, citations, insufficientKnowledge: modelSaysInsufficient } = parseTrailer(result.content);
-    const validatedCitations = validateCitations(citations, context);
+    const validatedCitations = socialIntent ? [] : validateCitations(citations, context);
 
     const message = await insertMessageSerialized({
       id: streamId,
@@ -145,8 +166,8 @@ export class AiReplyService {
       content: answerText,
       streamStatus: result.interrupted ? "INTERRUPTED" : "COMPLETED",
       citations: validatedCitations,
-      insufficientKnowledge: modelSaysInsufficient,
-      retrieval: context.map((c) => ({ chunkId: c.chunkId, distance: c.distance })),
+      insufficientKnowledge: socialIntent ? false : modelSaysInsufficient,
+      retrieval: socialIntent ? { skipped: `social:${socialIntent}` } : context.map((c) => ({ chunkId: c.chunkId, distance: c.distance })),
     });
 
     await this.quota.reconcile(reservation.reservationId, result.inputTokens + result.outputTokens);

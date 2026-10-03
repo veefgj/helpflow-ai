@@ -115,8 +115,11 @@ Cross-tenant access returns 404, not 403.
 | Control | MVP rule |
 |---|---|
 | Retrieval scope | Only chunks of KBs attached to the active chatbot, in current org, from READY documents not disabled/deleted. |
-| Distance | pgvector cosine distance (vector_cosine_ops, `<=>`): 0 = identical, larger = less similar. Order ascending; drop distance > maxCosineDistance (provisional 0.6). |
-| Insufficient knowledge | If no chunk passes threshold, skip LLM, return insufficientKnowledge=true with handoff offer. Model can also return this. |
+| Distance | pgvector cosine distance (vector_cosine_ops, `<=>`): 0 = identical, larger = less similar. Order ascending; drop distance > maxCosineDistance (provisional 0.7). Passing the threshold is not proof the chunk answers the question — the model must still check the content. |
+| Insufficient knowledge | If no chunk passes threshold, skip LLM, return a fixed fallback in the session language with insufficientKnowledge=true and a handoff offer. Model can also return this (including for the unanswered part of a multi-part question). |
+| Strict grounding | Business facts only from supplied knowledge; rephrasing allowed; no inference, added data or new commitments. Answer the supported part of a multi-part question and offer handoff for the rest. The model may only OFFER a human; it never claims a connection — only the T2 SYSTEM message announces one. |
+| Conversational intents | Code (not the model) classifies a message as small talk — greeting, thanks, goodbye, language switch, clarification — only when the WHOLE message is small talk (`packages/ai/intent.ts`). Those skip retrieval; the model gets no knowledge, is told not to state business facts, and the server discards any citations. Anything else, e.g. greeting + question, goes through retrieval. |
+| Language | Conversation.language (vi/en) is set at T1 from the first message (Chatbot.defaultLanguage when ambiguous) and persisted before the AI runs. It changes only on an explicit customer request ("reply in English", "trả lời bằng tiếng Việt"), both directions, any number of times. Answers, fallback, SYSTEM transition messages and widget UI use it. NULL only on legacy rows → chatbot default. |
 | Citations | Context chunks numbered [1]..[K]. Model cites only those numbers; server maps to chunkIds, drops unknown numbers. |
 | Prompt hierarchy | Platform safety → tenant systemPrompt → retrieved knowledge (untrusted) → last N messages → customer message (untrusted). |
 | Output format | Streamed answer text followed by JSON trailer {citations, insufficientKnowledge} parsed after stream ends. |
@@ -124,8 +127,10 @@ Cross-tenant access returns 404, not 403.
 ### RAG evaluation (Phase 2 deliverable)
 
 Gold set of 20–30 questions in evals/rag-gold.jsonl: {question, expectedDocumentId, expectedPage,
-expectedFacts[], answerable}. ≥5 unanswerable questions. `pnpm eval:rag` reports Hit@5, citation correctness,
-faithfulness (LLM-judged), correct-refusal rate, and distance distribution used to set maxCosineDistance.
+expectedFacts[], answerable, social?, language?}. ≥5 unanswerable questions, plus short VI/EN queries and small-talk
+cases. `pnpm eval:rag` reports Hit@5, citation correctness, answer correctness (expected facts stated, LLM-judged),
+groundedness (every claim supported by the supplied knowledge, LLM-judged), correct- and false-refusal rates, social
+routing, session-language adherence, and the distance distribution used to set maxCosineDistance.
 
 ## 6. Widget, visitor session & abuse controls
 
@@ -159,7 +164,7 @@ successful transition inserts a SYSTEM message and emits `conversation:updated` 
 | # | From → To | Trigger / actor | Guard and side effects |
 |---|---|---|---|
 | T1 | (none) → AI_ACTIVE | First customer message | Conversations quota check (402); partial unique index guarantees one open conversation per customer+chatbot. |
-| T2 | AI_ACTIVE → WAITING_AGENT | Customer POST .../handoff | Cancels AI stream (INTERRUPTED). Sets handoffRequestedAt. Schedules handoff-timeout job (handoffTimeoutSec ?? 180s). |
+| T2 | AI_ACTIVE → WAITING_AGENT | Customer POST .../handoff, or a chat message that explicitly asks for a human / says yes to the AI's handoff offer (detected in code, `detectHandoffIntent`) | Cancels AI stream (INTERRUPTED). Sets handoffRequestedAt. Schedules handoff-timeout job (handoffTimeoutSec ?? 180s). |
 | T3 | WAITING_AGENT → AGENT_ACTIVE | Agent accept, or Owner/Admin takeover | Sets assignedAgentId + assignedAt; removes handoff-timeout job. |
 | T4 | WAITING_AGENT → AI_ACTIVE | Handoff timeout, policy RESUME_AI | SYSTEM message tells customer AI continues; AI answers again. |
 | T5 | WAITING_AGENT → CLOSED | Handoff timeout, policy COLLECT_EMAIL | closeReason AGENT_UNAVAILABLE; widget shows email form (POST .../contact saves Customer.email). |
@@ -167,6 +172,7 @@ successful transition inserts a SYSTEM message and emits `conversation:updated` 
 | T7 | AGENT_ACTIVE → AGENT_ACTIVE | Owner/Admin reassign or takeover | Guard: target is active member of org. Writes AuditLog row. |
 | T8 | AGENT_ACTIVE → CLOSED | Assigned agent, Owner or Admin | closeReason CLOSED_BY_AGENT. |
 | T9 | AI_ACTIVE → CLOSED | Maintenance job | No message for 24h (aiInactivityCloseHours); closeReason INACTIVITY. |
+| T10 | AI_ACTIVE / WAITING_AGENT / AGENT_ACTIVE → CLOSED | Customer POST .../close ("End conversation" in the widget, after a confirm) | Guarded by the status just read (0 rows → 409 with current state). closeReason CLOSED_BY_CUSTOMER; clears assignedAgentId; aborts an in-flight AI stream; removes handoff-timeout and agent-grace jobs. The widget's minimize button does NOT end the conversation. |
 
 | Situation | Rule |
 |---|---|

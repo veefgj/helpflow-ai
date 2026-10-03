@@ -38,6 +38,12 @@ test.beforeAll(async () => {
   });
   const chatbot = (await chatbotRes.json()) as { id: string };
   chatbotId = chatbot.id;
+  // English scenario: widget chrome follows the chatbot's default language until the session's is set.
+  await fetch(`${API_URL}/api/orgs/${organizationId}/chatbots/${chatbotId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ defaultLanguage: "en" }),
+  });
 
   const kbRes = await fetch(`${API_URL}/api/orgs/${organizationId}/knowledge-bases`, {
     headers: { Authorization: `Bearer ${accessToken}` },
