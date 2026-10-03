@@ -1,8 +1,10 @@
+import { Transform } from "class-transformer";
 import { IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 import type { UnavailablePolicy } from "@helpflow/database";
 
 export class UpdateChatbotDto {
   @IsOptional()
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @MinLength(1)
   name?: string;
