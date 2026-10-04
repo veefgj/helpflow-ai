@@ -21,6 +21,9 @@ import styles from "./chat-widget.module.css";
 import { ArrowDownIcon, BotIcon, ChevronDownIcon, EndChatIcon, HeadsetIcon, MoreIcon, SendIcon } from "./icons";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+// Display-only: citations are still validated and stored; a deployment can hide the "[n]" markers and source list.
+const SHOW_CITATIONS = process.env.NEXT_PUBLIC_WIDGET_SHOW_CITATIONS !== "false";
+const CITATION_MARKER = /\s*\[\d+\]/g;
 const VISITOR_STORAGE_KEY = "hf_visitor";
 // Tells apps/widget/public/loader.js to grow/shrink the iframe. Carries no data beyond open/closed.
 const LOADER_MESSAGE_TYPE = "helpflow:widget";
@@ -533,8 +536,8 @@ export function ChatWidget({ chatbotId }: { chatbotId: string }) {
         <div key={m.id} className={`${styles.turn} ${noEnter || reveal ? "" : styles.enter}`}>
           {startsRun && senderLabel(m.senderType)}
           <div className={`${styles.bubble} ${styles.bubbleAi} ${reveal ? styles.reveal : ""}`}>
-            {m.content}
-            {m.citations && m.citations.length > 0 && (
+            {SHOW_CITATIONS ? m.content : m.content.replace(CITATION_MARKER, "")}
+            {SHOW_CITATIONS && m.citations && m.citations.length > 0 && (
               <div className={styles.citations}>
                 {m.citations.map((c) => (
                   <span key={c.index}>
