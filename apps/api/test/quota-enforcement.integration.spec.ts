@@ -210,6 +210,34 @@ describe("Quota enforcement (Phase 4, Section 8)", () => {
     }
   });
 
+  it("completes the AI reply and settles the reservation on the unlimited BUSINESS plan", async () => {
+    const { ownerToken, organizationId } = await registerAndCreateOrg("unlimited");
+    await prisma.subscription.update({ where: { organizationId }, data: { plan: { connect: { code: "BUSINESS" } } } });
+    const chatbot = await request(baseUrl).post(`/api/orgs/${organizationId}/chatbots`).set("Authorization", `Bearer ${ownerToken}`).send({ name: "Bot" });
+    const kbs = await request(baseUrl).get(`/api/orgs/${organizationId}/knowledge-bases`).set("Authorization", `Bearer ${ownerToken}`);
+    await seedReadyDocument(organizationId, kbs.body[0].id, "Our refund policy allows a full refund within 30 days of purchase.");
+
+    const session = await request(baseUrl).post("/api/widget/session").send({ chatbotId: chatbot.body.id });
+    const socket = await connectWidgetSocket(session.body.visitorToken);
+    try {
+      const completed = new Promise<void>((resolve, reject) => {
+        socket.on("ai:completed", () => resolve());
+        socket.on("ai:failed", (payload: { error: { code: string } }) => reject(new Error(`expected ai:completed, got ai:failed ${payload.error.code}`)));
+        setTimeout(() => reject(new Error("timed out waiting for ai:completed")), 15_000);
+      });
+      socket.emit("message:send", { clientMessageId: randomUUID(), content: "How many days do I have to request a refund?" }, () => undefined);
+      await completed;
+    } finally {
+      socket.disconnect();
+    }
+
+    const reservations = await prisma.tokenReservation.findMany({ where: { organizationId } });
+    expect(reservations.map((r) => r.status)).toEqual(["RECONCILED"]);
+    const counter = await prisma.usageCounter.findFirstOrThrow({ where: { organizationId } });
+    expect(counter.aiTokensReserved).toBe(0n);
+    expect(counter.aiTokensUsed).toBeGreaterThan(0n);
+  });
+
   it("GET /api/orgs/:orgId/usage reports the current period's used/reserved/limit for the owner", async () => {
     const { ownerToken, organizationId } = await registerAndCreateOrg("usage-endpoint");
     const period = await currentPeriod(organizationId);

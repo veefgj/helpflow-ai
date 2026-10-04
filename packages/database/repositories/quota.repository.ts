@@ -42,6 +42,10 @@ export async function reserveTokens(params: ReserveTokensParams): Promise<Reserv
         RETURNING id
       `;
       if (monthlyRows.length === 0) return { ok: false, reason: "QUOTA_EXCEEDED" };
+    } else {
+      // Unlimited plan (BUSINESS): nothing to check, but still hold the estimate — reconcile/release
+      // always move it back out of aiTokensReserved, which must never go negative.
+      await tx.usageCounter.update({ where: { id: counter.id }, data: { aiTokensReserved: { increment: params.estimatedTokens } } });
     }
 
     await tx.$executeRaw`
@@ -57,9 +61,7 @@ export async function reserveTokens(params: ReserveTokensParams): Promise<Reserv
     if (dailyRows.length === 0) {
       // Roll back the monthly reservation we just took (the transaction aborts on throw, but we
       // want a typed result instead) — undo manually since we're still inside the same tx.
-      if (params.monthlyLimit !== null) {
-        await tx.usageCounter.update({ where: { id: counter.id }, data: { aiTokensReserved: { decrement: params.estimatedTokens } } });
-      }
+      await tx.usageCounter.update({ where: { id: counter.id }, data: { aiTokensReserved: { decrement: params.estimatedTokens } } });
       return { ok: false, reason: "DAILY_CAP_EXCEEDED" };
     }
 
